@@ -26,8 +26,7 @@
 ;; TODO: modify the syntax to match the paper.
 
 (define-language CoreChkC+
-  (m ::= c u)
-  (κ ::= m t)
+  (m ::= c t u)
   (τ ::= int (ptr m ω))
   (ω ::= τ (struct T)
      (array le he τ)
@@ -44,13 +43,12 @@
      ;; NEw:
      (fun (x ...) τ (τ ...)))
 
-  (e ::= (n : τ) x (let x = e in e) (malloc κ ω) (cast τ e)
+  (e ::= (n : τ) x (let x = e in e) (malloc m ω) (cast τ e)
      (e + e) (& e → f) (* e) (* e = e)
      ;; NEW checked expr
      (unchecked (x ...) e) (checked (x ...) e)
      (if e e e)
      (strlen e)
-     (free e)
      ;; (dyn-bound-cast τ e) I can remove this one
      (call e e ...))
 
