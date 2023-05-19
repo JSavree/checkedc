@@ -6,7 +6,7 @@
 
 (caching-enabled? #f) ; don't cache so that parameters are consulted
 (define *D* (make-parameter (term ()))) ; struct table
-(define *Hs* (make-parameter (term ()))) ; global heap (for type system)
+(define *H* (make-parameter (term ()))) ; global heap (for type system)
 (define *Fs* (make-parameter (term ()))) ; global function definition table
 (define *eFs* (make-parameter (term ()))) ; global erased function definition table
 
@@ -26,8 +26,9 @@
 ;; TODO: modify the syntax to match the paper.
 
 (define-language CoreChkC+
-  (m ::= c t u)
-  (τ ::= int (ptr m ω))
+  (m ::= c u)
+  (K ::= m t)
+  (τ ::= int (ptr K ω))
   (ω ::= τ (struct T)
      (array le he τ)
      (ntarray le he τ)
@@ -36,22 +37,26 @@
 
   ;; NEW
   ;; normalized types
-  (vτ ::= int (ptr m vω))
+  (vτ ::= int (ptr K vω))
   (vω ::= vτ (struct T)
      (array l h vτ)
      (ntarray l h vτ)
      ;; NEw:
      (fun (x ...) τ (τ ...)))
 
-  (e ::= (n : τ) x (let x = e in e) (malloc m ω) (cast τ e)
+  (e ::= (n : τ) x (let x = e in e) (malloc K ω) (cast τ e)
      (e + e) (& e → f) (* e) (* e = e)
      ;; NEW checked expr
-     (unchecked (x ...) e) (checked (x ...) e)
+     ;;(unchecked (x ...) e) (checked (x ...) e)
+     (to m e)
      (if e e e)
      (strlen e)
+     (free e)
      ;; (dyn-bound-cast τ e) I can remove this one
      (call e e ...))
-
+     ;; NEW switching operation
+     ;;()
+  
   ;; erased expressions
   (ee ::=  i eS)
 
@@ -69,10 +74,10 @@
   (fs ((vτ f) (vτ f) ...))
   (x eff f T ::= variable-not-otherwise-mentioned)
 
-  (Hs ::= (H H))
+  ;;(Hs ::= (H H))
   (H ::= ((n : vτ) ...))
 
-  (eHs ::= (eH eH))
+  ;;(eHs ::= (eH eH))
   (eH ::= (n ...))
   (eFs ::= (eF eF))
   (eF ::= ((defun ee x ... ee) ...))
@@ -82,10 +87,12 @@
   (ε ::= Null Bounds)
   (E ::= hole (let x = E in e) (let x = (n : vτ) in E) (E + e) ((n : vτ) + E) ;; this defines a context and defines the semantics
      (& E → f) (dyn-bound-cast Eτ e) (dyn-bound-cast vτ E) (cast Eτ e) (cast vτ E) (* E) (* E = e) (* (n : vτ) = E)
-     (unchecked (x ...) E) (checked (x ...) E)
+     ;;(unchecked (x ...) E) (checked (x ...) E)
+     (to m E)
      (if E e e)
      (strlen E)
-     (malloc m Eω)
+     (malloc K Eω)
+     (free E)
      (n : Eτ)
      ;;New for functions
      (call E e ...)
@@ -99,7 +106,7 @@
        (ntarray l h Eτ)
        Eτ)
 
-  (Eτ ::= (ptr m Eω))
+  (Eτ ::= (ptr K Eω))
 
   ;; A Potential Redex (pr) is a term of the form matching the
   ;; premises of the ⊢→ basic reduction relation.
@@ -118,10 +125,12 @@
       ((n_1 : vτ_1) + (n_2 : vτ_2))
       (cast vτ (n : vτ_′))
       (& (n : vτ) → f_i)
-      (malloc m vω)
-      (unchecked (x ...) (n : vτ))
+      (malloc K vω)
+      (free (n : vτ))
+      ;;(unchecked (x ...) (n : vτ))
       ;; NEW checked expr
-      (checked (x ...) (n : vτ))
+      ;;(checked (x ...) (n : vτ))
+      (to m (n : vτ))
       (if (n : vτ) e_1 e_2))
 
  ;; result
@@ -136,6 +145,7 @@
       (i <=? eE)
       (if eE ee ee)
       (strlen eE)
+      (free eE)
       (let x = eE in ee)
       (let x = i in eE)
 
@@ -154,6 +164,7 @@
       (if ee ee ee)
       (let x = ee in ee)
       (strlen-l ee) (strlen-r ee)
+      (free-l ee) (free-r ee)
       (call-l ee ee ...)
       (call-r ee ee ...)
       ;; exceptions
@@ -176,6 +187,8 @@
       (if [] ee ee)
       (strlen-l [])
       (strlen-r [])
+      (free-l [])
+      (free-r [])
       (let x = [] in ee)
       ;;New for functions
       (call-l [] ee ...)
@@ -216,275 +229,276 @@
 
 (define ~~>
   (reduction-relation
-   CoreChkC+ #:domain (Hs r)
-   (--> (Hs e) (Hs_′ r_′) (judgment-holds (⊢↝ (Hs e) (Hs_′ r_′))))))
+   CoreChkC+ #:domain (H r)
+   (--> (H e) (H_′ r_′) (judgment-holds (⊢↝ (H e) (H_′ r_′))))))
 
 (define (---> m) ;; top
   (reduction-relation
    CoreChkC+
-   #:domain (Hs r)
-   (--> (Hs e) (Hs_′ r)
-        (judgment-holds (⊢⟶ (Hs e ,m) (Hs_′ r))))))
+   #:domain (H r)
+   (--> (H e) (H_′ r)
+        (judgment-holds (⊢⟶ (H e ,m) (H_′ r))))))
 
 (define --->cu
   (reduction-relation
    CoreChkC+
-   #:domain (Hs r)
+   #:domain (H r)
    (-->
-    (Hs (in-hole E pr))
-    (Hs_′ (in-hole E e_′))
-    (judgment-holds (⊢↝/name (Hs pr) (Hs_′ e_′ any_name)))
+    (H (in-hole E pr))
+    (H_′ (in-hole E e_′))
+    (judgment-holds (⊢↝/name (H pr) (H_′ e_′ any_name)))
     (computed-name (term any_name)))
 
    (-->
-    (Hs (in-hole E pr))
-    (Hs_′ ε)
-    (judgment-holds (⊢↝/name (Hs pr) (Hs_′ ε any_name)))
+    (H (in-hole E pr))
+    (H_′ ε)
+    (judgment-holds (⊢↝/name (H pr) (H_′ ε any_name)))
     (computed-name (term any_name)))))
 
 (define-judgment-form CoreChkC+
-  #:contract (⊢↝/name (Hs e) (Hs r any))
+  #:contract (⊢↝/name (H e) (H r any))
   #:mode     (⊢↝/name I O)
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; New rules
 
-  [(⊢↝/name (Hs (let x = (n_0 : vτ_0) in (in-hole E (x + i_0))))
-       (Hs (let x = (n_0 : vτ_0) in (in-hole E i_1))
+  [(⊢↝/name (H (let x = (n_0 : vτ_0) in (in-hole E (x + i_0))))
+       (H (let x = (n_0 : vτ_0) in (in-hole E i_1))
           E-VarTy))
    (where i_1 ,(+ (term n_0) (term i_0)))
    E-VarTy]
 
-  [(⊢↝/name (Hs (let x = (n_0 : vτ_0)  in (n_2 : vτ_2))) (Hs (n_2 : vτ_2) E-Let))
+  [(⊢↝/name (H (let x = (n_0 : vτ_0)  in (n_2 : vτ_2))) (H (n_2 : vτ_2) E-Let))
    E-Let]
 
-  [(⊢↝/name (Hs (let x = (n : vτ) in (name e (in-hole E x)))) (Hs (let x = (n : vτ) in (in-hole E (n : vτ))) E-VarNonNT))
+  [(⊢↝/name (H (let x = (n : vτ) in (name e (in-hole E x)))) (H (let x = (n : vτ) in (in-hole E (n : vτ))) E-VarNonNT))
    (where #t (⊢non-nt-deref-or-strlen? vτ e))
    E-VarNonNT]
 
-  [(⊢↝/name (Hs (let x = (n : vτ_1) in (in-hole E (* x)))) (Hs (let x = (n : vτ_2) in (in-hole E (n_′ : vτ_′))) E-VarNT-Incr))
+  [(⊢↝/name (H (let x = (n : vτ_1) in (in-hole E (* x)))) (H (let x = (n : vτ_2) in (in-hole E (n_′ : vτ_′))) E-VarNT-Incr))
    (where (ptr m _) vτ_1)
-   (where H (⊢heap-by-mode Hs m))
+;   (where H (⊢heap-by-mode H m))
    (where (n_′ : vτ_′) (⊢heap-lookup H n))
    (where #f ,(zero? (term n_′)))
    (where vτ_2 (⊢nt-incr vτ_1))
    E-VarNT-Incr]
 
-  [(⊢↝/name (Hs (let x = (n : vτ_1) in (in-hole E (* x)))) (Hs (let x = (n : vτ_1) in (in-hole E (* (n : vτ_1)))) E-VarNT-Sub))
+  [(⊢↝/name (H (let x = (n : vτ_1) in (in-hole E (* x)))) (H (let x = (n : vτ_1) in (in-hole E (* (n : vτ_1)))) E-VarNT-Sub))
    (where (ptr m _) vτ_1)
-   (where H (⊢heap-by-mode Hs m))
+;   (where H (⊢heap-by-mode H m))
    (side-condition ,(let ([i (term (⊢heap-lookup H n))])
                       (or (not i)
                           (zero? (first i)))))
    E-VarNT-Sub]
 
   ;; this are just like their array counterparts
-  [(⊢↝/name (Hs (* (n : vτ))) (Hs Bounds X-NTDerefOOB))
+  [(⊢↝/name (H (* (n : vτ))) (H Bounds X-NTDerefOOB))
    (where (ptr c (ntarray l h vτ_1)) vτ)
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(not (and (<= (term l) 0) (<= 0 (term h)))))
    X-NTDerefOOB]
 
-  [(⊢↝/name (Hs (* (n : vτ) = (n_1 : vτ_1))) (Hs Bounds X-NTAssignOOB))
+  [(⊢↝/name (H (* (n : vτ) = (n_1 : vτ_1))) (H Bounds X-NTAssignOOB))
    (where (ptr c (ntarray l h vτ_1)) vτ)
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(not (and (<= (term l) 0) (< 0 (term h)))))
    X-NTAssignOOB]
 
-  [(⊢↝/name (Hs ((0 : vτ) + (n : vτ_′))) (Hs Null X-BinopNTNull))
+  [(⊢↝/name (H ((0 : vτ) + (n : vτ_′))) (H Null X-BinopNTNull))
    (where (ptr c (ntarray l h vτ_1)) vτ)
    X-BinopNTNull]
 
   ;; file a bug report on microsoft/checkedc?
-  [(⊢↝/name (Hs (strlen (0 : vτ))) (Hs Null X-StrNull))
+  [(⊢↝/name (H (strlen (0 : vτ))) (H Null X-StrNull))
    (where (ptr c (ntarray l h vτ_1)) vτ)
    X-StrNull]
 
-  [(⊢↝/name (Hs (strlen (n : vτ))) (Hs Bounds X-StrOOB))
+  [(⊢↝/name (H (strlen (n : vτ))) (H Bounds X-StrOOB))
    (where (ptr c (ntarray l h vτ_1)) vτ)
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(not (and (<= (term l) 0) (<= 0 (term h)))))
    X-StrOOB]
 
-  [(⊢↝/name (Hs (strlen (n : vτ))) (Hs Null X-StrTainted))
+  [(⊢↝/name (H (strlen (n : vτ))) (H Null X-StrTainted))
    (where (ptr t (ntarray l h vτ_1)) vτ)
-   (where H (⊢heap-by-mode Hs t))
+;   (where H (⊢heap-by-mode H t))
    (where #f (⊢strlen n H))
    X-StrTainted] 
 
-  [(⊢↝/name (Hs (strlen (n : vτ))) (Hs (n_1 : int) E-Str))
-   (where (ptr m (ntarray l h vτ_1)) vτ)
-   (where H (⊢heap-by-mode Hs m))
-   (where n_1 (⊢strlen n H))
+  ;; no longer about error states I changed this to accept K, may need some looking at
+  [(⊢↝/name (H (strlen (n : vτ))) (H (n_1 : int) E-Str))
+   (where (ptr K (ntarray l h vτ_1)) vτ)
+;   (where H (⊢heap-by-mode H m))
+   (where n_1 (⊢strlen n K H))
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(and (<= (term l) 0) (<= 0 (term h))))
    E-Str]
 
-  [(⊢↝/name (Hs (call (n_1 : vτ_1) (n_args : vτ_args) ..._1))  (Hs Null X-FunTainted))
+  [(⊢↝/name (H (call (n_1 : vτ_1) (n_args : vτ_args) ..._1))  (H Null X-FunTainted))
    (where (ptr t (fun _ _ _)) vτ_1) 
    (where #f (⊢fun-lookup (⊢fheap-by-mode t) n_1))
    X-FunTainted]
 
   
-  [(⊢↝/name (Hs (call (n_1 : vτ_1) (n_args : vτ_args) ..._1))  (Hs (⊢build-call-stack e (x (n_args : vτ_args)) ...) E-Fun))
+  [(⊢↝/name (H (call (n_1 : vτ_1) (n_args : vτ_args) ..._1))  (H (⊢build-call-stack e (x (n_args : vτ_args)) ...) E-Fun))
    (where (ptr m (fun _ _ _)) vτ_1) 
-   (where (defun ((x : τ_2′) ..._1 e) : τ) (⊢fun-lookup (⊢fheap-by-mode m) n_1)) ;; defun no vτ_1
+   (where (defun ((x : τ_2′) ..._1 e) : τ) (⊢fun-lookup (⊢fheap-by-mode m) n_1)) ;; defun no vτ_1 
    E-Fun]
 
-  [(⊢↝/name (Hs (dyn-bound-cast vτ (n : vτ_′))) (Hs (n : vτ_′) E-DynCast)) ;; note that the annotation does not change
+  [(⊢↝/name (H (dyn-bound-cast vτ (n : vτ_′))) (H (n : vτ_′) E-DynCast)) ;; note that the annotation does not change
    (where #t (⊢bounds-within vτ vτ_′)) ;; only need the ntarray/array subsumption cases
    E-DynCast]
 
-  [(⊢↝/name (Hs (dyn-bound-cast vτ (n : vτ_′))) (Hs Bounds X-DynCast))
+  [(⊢↝/name (H (dyn-bound-cast vτ (n : vτ_′))) (H Bounds X-DynCast))
    (where #f (⊢bounds-within vτ vτ_′))
    X-DynCast]
   
   ;; Old rules
-  [(⊢↝/name (Hs ((n_1 : vτ_1) + (n_2 : vτ_2))) (Hs (n_3 : vτ_3) E-Binop))
+  [(⊢↝/name (H ((n_1 : vτ_1) + (n_2 : vτ_2))) (H (n_3 : vτ_3) E-Binop))
    (where n_3 ,(+ (term n_1) (term n_2)))
    (where vτ_3 (⊢binop-type vτ_1 n_1 n_2))
    E-Binop]
 
-  [(⊢↝/name (Hs (cast vτ (n : vτ_′))) (Hs (n : vτ) E-Cast))
+  [(⊢↝/name (H (cast vτ (n : vτ_′))) (H (n : vτ) E-Cast))
    E-Cast]
 
 
-  [(⊢↝/name (Hs (* (n : vτ))) (Hs (n_1 : vτ_1) E-Deref))
+  [(⊢↝/name (H (* (n : vτ))) (H (n_1 : vτ_1) E-Deref))
    (where #t (⊢deref-ok? vτ))
-   (where (ptr m _) vτ)
-   (where H (⊢heap-by-mode Hs m))
-   (where (n_1 : _) (⊢heap-lookup H n))
+   (where (ptr K _) vτ)
+   ;;(where H (⊢heap-by-mode H m))
+   (where (n_1 : _) (⊢heap-lookup H K n))
    (where vτ_1 (⊢deref-type-dyn ,(*D*) vτ))
    E-Deref]
 
   ;; the type stored on the heap musn't change
   ;; the type attached to n_1 can stay as the evaluation result because it's all on the stack
-  [(⊢↝/name (Hs (* (n : vτ) = (n_1 : vτ_1))) (Hs_′ (n_1 : vτ_1) E-Assign))
+  [(⊢↝/name (H (* (n : vτ) = (n_1 : vτ_1))) (H_′ (n_1 : vτ_1) E-Assign))
    (where #t (⊢assign-ok? vτ))
    (where (ptr m _) vτ)
-   (where H (⊢heap-by-mode Hs m))
+;   (where H (⊢heap-by-mode H m))
    (where H_′ (⊢heap-update H n n_1))
-   (where Hs_′ (⊢update-heap-by-mode Hs H_′ m))
+   (where H_′ (⊢update-heap-by-mode H H_′ m))
    E-Assign]
 
-  [(⊢↝/name (Hs (& (n : vτ) → f_i)) (Hs (n_0 : vτ_0) E-Amper))
+  [(⊢↝/name (H (& (n : vτ) → f_i)) (H (n_0 : vτ_0) E-Amper))
    (where (n_0 : vτ_0) (⊢& vτ f_i n))
    E-Amper]
 
-  [(⊢↝/name (Hs (malloc m vω)) (Hs_′ (n_1 : (ptr c vω)) E-Malloc))
+  [(⊢↝/name (H (malloc m vω)) (H_′ (n_1 : (ptr c vω)) E-Malloc))
    (where (vτ_1 ...) (⊢types ,(*D*) vω))
-   (where H (⊢heap-by-mode Hs m))
+;   (where H (⊢heap-by-mode H m))
    (where ((n : vτ) ...) H)
    (where H_′ ((n : vτ) ... (0 : vτ_1) ...))
-   (where Hs_′ (⊢update-heap-by-mode Hs H_′ m))
+   (where H_′ (⊢update-heap-by-mode H H_′ m))
    (where n_1 ,(add1 (length (term H))))
    (where #t (⊢malloc-type-wf vω))      ; making sure the lower bound is always 0
    (side-condition ,(positive? (term (⊢sizeof vω))))
    E-Malloc]
 
-  [(⊢↝/name (Hs (malloc m vω)) (Hs (0 : (ptr c vω)) E-MallocZero))
+  [(⊢↝/name (H (malloc m vω)) (H (0 : (ptr c vω)) E-MallocZero))
    (where #t (⊢malloc-type-wf vω))      ; making sure the lower bound is always 0
    (side-condition ,(not (positive? (term (⊢sizeof vω)))))
    E-MallocZero]
 
-  [(⊢↝/name (Hs (unchecked (n : vτ))) (Hs (n : vτ) E-Unchecked))
+  [(⊢↝/name (H (unchecked (n : vτ))) (H (n : vτ) E-Unchecked))
    E-Unchecked]
 
-  [(⊢↝/name (Hs (* (n : vτ))) (Hs Bounds X-DerefOOB))
+  [(⊢↝/name (H (* (n : vτ))) (H Bounds X-DerefOOB))
    (side-condition ,(not (zero? (term n))))
    (where (ptr c (array l h vτ_1)) vτ)
    (side-condition ,(not (and (<= (term l) 0) (< 0 (term h)))))
    X-DerefOOB]
 
-  [(⊢↝/name (Hs (* (n : vτ) = (n_1 : vτ_1))) (Hs Bounds X-AssignOOB))
+  [(⊢↝/name (H (* (n : vτ) = (n_1 : vτ_1))) (H Bounds X-AssignOOB))
    (side-condition ,(not (zero? (term n))))
    (where (ptr c (array l h vτ_1)) vτ)
    (side-condition ,(not (and (<= (term l) 0) (< 0 (term h)))))
    X-AssignOOB]
 
-  [(⊢↝/name (Hs (* (n : vτ))) (Hs Null X-DerefTainted))
+  [(⊢↝/name (H (* (n : vτ))) (H Null X-DerefTainted))
    (where (ptr t _) vτ)
-   (where H (⊢heap-by-mode Hs t))
+;   (where H (⊢heap-by-mode H t))
    (where #f (⊢heap-lookup H n))
    X-DerefTainted] 
   
-  [(⊢↝/name (Hs (* (0 : vτ))) (Hs Null X-DerefNull))
+  [(⊢↝/name (H (* (0 : vτ))) (H Null X-DerefNull))
    (where (ptr c vω) vτ)
    X-DerefNull]
 
-  [(⊢↝/name (Hs (* (n : vτ) = (n_1 : vτ_′))) (Hs Null X-AssignTainted))
+  [(⊢↝/name (H (* (n : vτ) = (n_1 : vτ_′))) (H Null X-AssignTainted))
    (where (ptr t _) vτ)
-   (where H (⊢heap-by-mode Hs t))
+;   (where H (⊢heap-by-mode H t))
    (where #f (⊢heap-lookup H n))
    X-AssignTainted] 
   
-  [(⊢↝/name (Hs (* (0 : vτ) = (n_1 : vτ_′))) (Hs Null X-AssignNull))
+  [(⊢↝/name (H (* (0 : vτ) = (n_1 : vτ_′))) (H Null X-AssignNull))
    (where (ptr c vω) vτ)
    X-AssignNull]
 
-  [(⊢↝/name (Hs (& (n : vτ) → f)) (Hs Null X-AmperTainted))
+  [(⊢↝/name (H (& (n : vτ) → f)) (H Null X-AmperTainted))
    (where (ptr t _) vτ)
-   (where H (⊢heap-by-mode Hs t))
+;   (where H (⊢heap-by-mode H t))
    (where #f (⊢heap-lookup H n))
    X-AmperTainted] 
 
-  [(⊢↝/name (Hs (& (0 : vτ) → f)) (Hs Null X-AmperNull))
+  [(⊢↝/name (H (& (0 : vτ) → f)) (H Null X-AmperNull))
    (where (ptr c (struct T)) vτ)
    X-AmperNull]
 
-  [(⊢↝/name (Hs ((0 : vτ) + (n : vτ_′))) (Hs Null X-BinopNull))
+  [(⊢↝/name (H ((0 : vτ) + (n : vτ_′))) (H Null X-BinopNull))
    (where (ptr c (array l h vτ_1)) vτ)
    X-BinopNull]
 
-  [(⊢↝/name (Hs (if (n : vτ) e_1 e_2)) (Hs e_1 If-T))
+  [(⊢↝/name (H (if (n : vτ) e_1 e_2)) (H e_1 If-T))
    (side-condition ,(< (term 0) (term n)))
    If-T]
-  [(⊢↝/name (Hs (if (n : vτ) e_1 e_2)) (Hs e_2 If-F))
+  [(⊢↝/name (H (if (n : vτ) e_1 e_2)) (H e_2 If-F))
    (side-condition ,(= (term 0) (term n)))
    If-F]
 
-  [(⊢↝/name (Hs (let x = (n : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
-       (Hs (let x = (n : (ptr c (ntarray l h_′ vτ))) in (in-hole E (n_1 : int))) E-VarNTstr))
-   (where n_1 (⊢strlen n (⊢heap-by-mode Hs c)))
+  [(⊢↝/name (H (let x = (n : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
+       (H (let x = (n : (ptr c (ntarray l h_′ vτ))) in (in-hole E (n_1 : int))) E-VarNTstr))
+   (where n_1 (⊢strlen n))
    (where h_′ ,(max (term h) (term n_1)))
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(and (<= (term l) 0) (<= 0 (term h))))
    E-VarNTstr]
 
-  [(⊢↝/name (Hs (let x = (0 : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
-       (Hs Null E-VarNTNull))
+  [(⊢↝/name (H (let x = (0 : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
+       (H Null E-VarNTNull))
    E-VarNTNull]
 
-  [(⊢↝/name (Hs (let x = (n : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
-            (Hs Bounds E-VarNTOOB))
+  [(⊢↝/name (H (let x = (n : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
+            (H Bounds E-VarNTOOB))
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(not (and (<= (term l) 0) (<= 0 (term h)))))
    E-VarNTOOB])
 
 
 (define-judgment-form CoreChkC+
-  #:contract (⊢↝ (Hs e) (Hs r))
+  #:contract (⊢↝ (H e) (H r))
   #:mode     (⊢↝ I O)
-  [(⊢↝ (Hs e) (Hs_′ r))
-   (⊢↝/name (Hs e) (Hs_′ r any))])
+  [(⊢↝ (H e) (H_′ r))
+   (⊢↝/name (H e) (H_′ r any))])
 
 (define-judgment-form CoreChkC+
-  #:contract (⊢⟶ (Hs e m) (Hs r))
+  #:contract (⊢⟶ (H e m) (H r))
   #:mode     (⊢⟶ I O)
   [(where (in-hole E e_0) e) 
-   (⊢↝ (Hs e_0) (Hs_′ e_0′))
+   (⊢↝ (H e_0) (H_′ e_0′))
    (where e_′ (in-hole E e_0′))
    (where m_′ (⊢mode E))
    (where #t (⊢check-mode m m_′))
    ------ C-Exp
-   (⊢⟶ (Hs e m) (Hs_′ e_′))]
+   (⊢⟶ (H e m) (H_′ e_′))]
 
   [(where (in-hole E e_0) e)
-   (⊢↝ (Hs e_0) (Hs_′ ε))
+   (⊢↝ (H e_0) (H_′ ε))
    (where m_′ (⊢mode E))
    (where #t (⊢check-mode m m_′))
    ------- C-Halt
-   (⊢⟶ (Hs e m) (Hs_′ ε))])
+   (⊢⟶ (H e m) (H_′ ε))])
 
 
 
@@ -625,28 +639,28 @@
 
 
 (define-metafunction CoreChkC+
-  ⊢update-heap-by-mode : Hs H m -> Hs
-  [(⊢update-heap-by-mode Hs H c) (H ,(list-ref (term Hs) 1))]
-  [(⊢update-heap-by-mode Hs H t) (,(list-ref (term Hs) 0) H)]
-  [(⊢update-heap-by-mode Hs H u) (,(list-ref (term Hs) 0) H)])
+  ⊢update-heap-by-mode : H H m -> H
+  [(⊢update-heap-by-mode H H c) (H ,(list-ref (term H) 1))]
+  [(⊢update-heap-by-mode H H t) (,(list-ref (term H) 0) H)]
+  [(⊢update-heap-by-mode H H u) (,(list-ref (term H) 0) H)])
 
 (define-metafunction CoreChkC+
-  ⊢update-eheap-by-mode : eHs eH m -> eHs
-  [(⊢update-eheap-by-mode eHs eH c) (eH ,(list-ref (term eHs) 1))]
-  [(⊢update-eheap-by-mode eHs eH t) (,(list-ref (term eHs) 0) eH)]
-  [(⊢update-eheap-by-mode eHs eH u) (,(list-ref (term eHs) 0) eH)])
+  ⊢update-eheap-by-mode : eH eH m -> eH
+  [(⊢update-eheap-by-mode eH eH c) (eH ,(list-ref (term eH) 1))]
+  [(⊢update-eheap-by-mode eH eH t) (,(list-ref (term eH) 0) eH)]
+  [(⊢update-eheap-by-mode eH eH u) (,(list-ref (term eH) 0) eH)])
+
+;(define-metafunction CoreChkC+
+;  ⊢heap-by-mode : H m -> H
+;  [(⊢heap-by-mode H c) ,(list-ref (term H) 0)]
+;  [(⊢heap-by-mode H t) ,(list-ref (term H) 1)]
+;  [(⊢heap-by-mode H u) ,(list-ref (term H) 1)])
 
 (define-metafunction CoreChkC+
-  ⊢heap-by-mode : Hs m -> H
-  [(⊢heap-by-mode Hs c) ,(list-ref (term Hs) 0)]
-  [(⊢heap-by-mode Hs t) ,(list-ref (term Hs) 1)]
-  [(⊢heap-by-mode Hs u) ,(list-ref (term Hs) 1)])
-
-(define-metafunction CoreChkC+
-  ⊢eheap-by-mode : eHs m -> eH
-  [(⊢eheap-by-mode eHs c) ,(list-ref (term eHs) 0)]
-  [(⊢eheap-by-mode eHs t) ,(list-ref (term eHs) 1)]
-  [(⊢eheap-by-mode eHs u) ,(list-ref (term eHs) 1)])
+  ⊢eheap-by-mode : eH m -> eH
+  [(⊢eheap-by-mode eH c) ,(list-ref (term eH) 0)]
+  [(⊢eheap-by-mode eH t) ,(list-ref (term eH) 1)]
+  [(⊢eheap-by-mode eH u) ,(list-ref (term eH) 1)])
 
 (define-metafunction CoreChkC+
   ⊢fheap-by-mode : m -> F
@@ -662,14 +676,14 @@
 
 
 (define-metafunction CoreChkC+
-  ⊢heap-lookup : H n -> (n : τ) or #f
-  [(⊢heap-lookup '() n) #f]
-  [(⊢heap-lookup H n)
-   ,(and (<= (term n) (length (term H)))
-         (positive? (term n))
-         (list-ref (term H) (sub1 (term n))))]
+  ⊢heap-lookup : H K n -> (n : τ) or #f
+  [(⊢heap-lookup (_ ... (n : (ptr K ω)) _ ...) K n) (n : (ptr K ω))] ;; case 1
+  [(⊢heap-lookup _ K n) #f] ;; case 2
   )
-
+;; Old Code
+;;   ,(and (<= (term n) (length (term H)))
+;;         (positive? (term n))
+ ;;        (list-ref (term H) (sub1 (term n))))
 
 ;(define-metafunction CoreChkC+
 ;  ⊢fun-lookup : F n -> (defun e ((x : τ) ... e) : τ) or #f
@@ -712,7 +726,7 @@
    #f])
 
 (define-metafunction CoreChkC+
-  ⊢eheap-update : eHs m n n -> eHs
+  ⊢eheap-update : eH m n n -> eH
   [(⊢eheap-update (eH_1 eH_2) c n n_1)
    (,(list-set (term eH_1) (sub1 (term n)) (term n_1)) eH_2)]
   [(⊢eheap-update (eH_1 eH_2) _ n n_1)
@@ -933,13 +947,13 @@
   [(⊢non-nt-deref-or-strlen? _ _) #t])
 
 (define-metafunction CoreChkC+
-  ⊢strlen : n H -> n or #f
-  [(⊢strlen n H)
+  ⊢strlen : n K H -> n or #f
+  [(⊢strlen n K H)
    0
-   (where (0 : _) (⊢heap-lookup H n))]
-  [(⊢strlen n H)
-   ,(add1 (term (⊢strlen ,(add1 (term n)) H)))
-   (where (n_0 : _) (⊢heap-lookup H n))
+   (where (0 : _) (⊢heap-lookup H K n))]
+  [(⊢strlen n K H)
+   ,(add1 (term (⊢strlen ,(add1 (term n)) K H)))
+   (where (n_0 : _) (⊢heap-lookup H K n))
    (side-condition (not (zero? (term n_0))))
    or
    #f])
@@ -1019,447 +1033,447 @@
 
 (module+ test
   (test--> (---> 'c)
-             (term ((() ()) (let x = (1 : int) in x)))
-             (term ((() ()) (let x = (1 : int) in (1 : int)))))
+             (term (() (let x = (1 : int) in x)))
+             (term (() (let x = (1 : int) in (1 : int)))))
   (test--> (---> 'c)
-             (term ((() ()) (let x = (1 : int) in (1 : int))))
-             (term ((() ()) (1 : int))))
+             (term (() (let x = (1 : int) in (1 : int))))
+             (term (() (1 : int))))
   (test-->> (---> 'c)
-             (term ((() ()) (let x = (1 : int) in x)))
-             (term ((() ()) (1 : int))))
+             (term (() (let x = (1 : int) in x)))
+             (term (() (1 : int))))
     ;; shadowing. explicitly spelling out the steps to prevent non-deterministic semantics
   (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in (x + (let x = (4 : int) in x)))))
-           (term ((() ()) (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in x))))))
+           (term (() (let x = (1 : int) in (x + (let x = (4 : int) in x)))))
+           (term (() (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in x))))))
   (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in x)))))
-           (term ((() ()) (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in (4 : int)))))))
+           (term (() (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in x)))))
+           (term (() (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in (4 : int)))))))
   (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in (4 : int))))))
-           (term ((() ()) (let x = (1 : int) in ((1 : int) + (4 : int))))))
+           (term (() (let x = (1 : int) in ((1 : int) + (let x = (4 : int) in (4 : int))))))
+           (term (() (let x = (1 : int) in ((1 : int) + (4 : int))))))
   (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in ((1 : int) + (4 : int)))))
-           (term ((() ()) (let x = (1 : int) in (5 : int)))))
+           (term (() (let x = (1 : int) in ((1 : int) + (4 : int)))))
+           (term (() (let x = (1 : int) in (5 : int)))))
   (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in (5 : int))))
-           (term ((() ()) (5 : int))))
+           (term (() (let x = (1 : int) in (5 : int))))
+           (term (() (5 : int))))
   (test-->> (---> 'c)
-             (term ((() ()) (let x = (1 : int) in
+             (term (() (let x = (1 : int) in
                             (let y = (2 : int) in (x + y)))))
-             (term ((() ()) (3 : int))))
+             (term (() (3 : int))))
 
   (test-->> (---> 'c)
-             (term ((() ()) (let x = (1 : int) in
+             (term (() (let x = (1 : int) in
                             (let y = (2 : (ptr c (ntarray 0 0 int))) in (x + y)))))
-             (term ((() ()) (3 : int))))
+             (term (() (3 : int))))
 
-  ;; strlen non-NT case
-  (test-->> (---> 'c)
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (strlen (2 : (ptr c (ntarray 0 0 int))))))
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (3 : int))))
+;  ;; strlen non-NT case
+;  (test-->> (---> 'c)
+;            (term (((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))
+;                   (strlen (2 : (ptr c (ntarray 0 0 int))))))
+;            (term (((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))
+;                   (3 : int))))
 
-  ;;tainted strlen case
-    (test-->> (---> 'c)
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ())
-                   (strlen (2 : (ptr t (ntarray 0 0 int))))))
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ())
-                   Null)))
-
-  (test-->> (---> 'c)
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (let x = (2 : (ptr c (ntarray 0 0 int))) in (strlen (x + (1 : int))))))
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))) Bounds)))
-
-;; E-VarNTstr
-  (test--> (---> 'c)
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (let x = (2 : (ptr c (ntarray 0 0 int))) in (strlen x))))
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (let x = (2 : (ptr c (ntarray 0 3 int))) in (3 : int)))))
-
-  ;; make sure the bound always expands
-  (test--> (---> 'c)
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (strlen x))))
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (3 : int)))))
- 
-  (test-->> (---> 'c)
-            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int)))
-                   (let x = (1 : int) in
-                        (let y = (2 : (ptr c (ntarray 0 0 int))) in (* y)))))
-            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int))) (0 : int))))
-
-   (test-->> (---> 'c)
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   (strlen (0 : (ptr c (ntarray 0 0 int))))))
-            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
-                   Null)))
-
-
-
-  ;; E-VarTy
-  (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in
-                          (malloc c (array (x + 0) (x + 0) int)))))
-           (term ((() ()) (let x = (1 : int) in
-                          (malloc c (array 1 (x + 0) int))))))
-
-
-  (test--> (---> 'c)
-           (term ((() ()) (malloc c (array 0 -7 int))))
-           (term ((() ()) (0 : (ptr c (array 0 -7 int))))))
-
-  (test--> (---> 'c)
-           (term ((() ()) (malloc c (array 0 0 int))))
-           (term ((() ()) (0 : (ptr c (array 0 0 int))))))
-
-  (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array (x + 0) 0 int))) in y))))
-            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in y)))))
-
-  (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array (x + 0) 0 int))) in y))))
-            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in y)))))
-
-  (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in y))))
-           (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in (0 : (ptr c (array 1 0 int))))))))
-
-  (test-->> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array (x + 0) 0 int))) in y))))
-            (term ((() ()) (0 : (ptr c (array 1 0 int))))))
-
-  ;; E-Malloc (cases where it gets stuck)
-  (test-->> (---> 'c)
-            (term ((() ()) (malloc c (array 2 3 int))))
-            (term ((() ()) (malloc c (array 2 3 int)))))
-
-  (test-->> (---> 'c)
-            (term ((() ()) (malloc c (array 0 3 int))))
-            (term ((((0 : int) (0 : int) (0 : int)) ()) (1 : (ptr c (array 0 3 int))))))
-
-  ;; E-Malloc (empty)
-  (test-->> (---> 'c)
-            (term ((() ()) (malloc c (array 0 -1 int))))
-            (term ((() ()) (0 : (ptr c (array 0 -1 int))))))
-
-  (test-->> (---> 'c)
-            (term ((((1 : int)) ()) (malloc c (array 0 0 int))))
-            (term ((((1 : int)) ()) (0 : (ptr c (array 0 0 int))))))
-
-
-  (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array (x + 0) 0 int))) in
-                                (let z = (cast int y) in (malloc c (array 0 (z + 0) int)))))))
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (cast int y) in (malloc c (array 0 (z + 0) int))))))))
-
-   (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (cast int y) in (malloc c (array 0 (z + 0) int)))))))
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (cast int (4 : (ptr c (array 1 0 int)))) in (malloc c (array 0 (z + 0) int))))))))
-
-  (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (cast int (4 : (ptr c (array 1 0 int)))) in (malloc c (array 0 (z + 0) int)))))))
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (4 : int) in (malloc c (array 0 (z + 0) int))))))))
-
-  (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (4 : int) in (malloc c (array 0 (z + 0) int)))))))
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (4 : int) in (malloc c (array 0 4 int))))))))
-
-  (test-->> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in
-                           (let y = (4 : (ptr c (array 1 0 int))) in
-                                (let z = (4 : int) in (malloc c (array 0 4 int)))))))
-            (term ((((0 : int) (0 : int) (0 : int) (0 : int)) ()) (1 : (ptr c (array 0 4 int))))))
-
-  (test--> (---> 'c)
-            (term ((() ()) (let x = (1 : int) in
-                           (* ((malloc c (array 0 (x + 0) int)) + x)))))
-            (term ((() ()) (let x = (1 : int) in
-                           (* ((malloc c (array 0 1 int)) + x))))))
-
-  (test--> (---> 'c)
-           (term ((() ()) (let x = (1 : int) in
-                          (* ((malloc c (array 0 1 int)) + x)))))
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* ((1 : (ptr c (array 0 1 int))) + x))))))
-
-    (test--> (---> 'c)
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* ((1 : (ptr c (array 0 1 int))) + x)))))
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* ((1 : (ptr c (array 0 1 int))) + (1 : int)))))))
-
-  (test--> (---> 'c)
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* ((1 : (ptr c (array 0 1 int))) + x)))))
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* ((1 : (ptr c (array 0 1 int))) + (1 : int)))))))
-
-  (test--> (---> 'c)
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* ((1 : (ptr c (array 0 1 int))) + (1 : int))))))
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* (2 : (ptr c (array -1 0 int))))))))
-
-  (test--> (---> 'c)
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* (2 : (ptr c (array -1 0 int)))))))
-           (term ((((0 : int)) ()) Bounds)))
-
-  (test--> (---> 'c)
-           (term ((((0 : int)) ()) (let x = (1 : int) in
-                                   (* (2 : (ptr t (array -1 0 int)))))))
-           (term ((((0 : int)) ()) Null)))
+;  ;;tainted strlen case
+;    (test-->> (---> 'c)
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ())
+;                   (strlen (2 : (ptr t (ntarray 0 0 int))))))
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ())
+;                   Null)))
+;
+;  (test-->> (---> 'c)
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   (let x = (2 : (ptr c (ntarray 0 0 int))) in (strlen (x + (1 : int))))))
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))) Bounds)))
+;
+;;; E-VarNTstr
+;  (test--> (---> 'c)
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   (let x = (2 : (ptr c (ntarray 0 0 int))) in (strlen x))))
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   (let x = (2 : (ptr c (ntarray 0 3 int))) in (3 : int)))))
+;
+;  ;; make sure the bound always expands
+;  (test--> (---> 'c)
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (strlen x))))
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (3 : int)))))
+; 
+;  (test-->> (---> 'c)
+;            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int)))
+;                   (let x = (1 : int) in
+;                        (let y = (2 : (ptr c (ntarray 0 0 int))) in (* y)))))
+;            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int))) (0 : int))))
+;
+;   (test-->> (---> 'c)
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   (strlen (0 : (ptr c (ntarray 0 0 int))))))
+;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
+;                   Null)))
+;
+;
+;
+;  ;; E-VarTy
+;  (test--> (---> 'c)
+;           (term ((() ()) (let x = (1 : int) in
+;                          (malloc c (array (x + 0) (x + 0) int)))))
+;           (term ((() ()) (let x = (1 : int) in
+;                          (malloc c (array 1 (x + 0) int))))))
+;
+;
+;  (test--> (---> 'c)
+;           (term ((() ()) (malloc c (array 0 -7 int))))
+;           (term ((() ()) (0 : (ptr c (array 0 -7 int))))))
+;
+;  (test--> (---> 'c)
+;           (term ((() ()) (malloc c (array 0 0 int))))
+;           (term ((() ()) (0 : (ptr c (array 0 0 int))))))
+;
+;  (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array (x + 0) 0 int))) in y))))
+;            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in y)))))
+;
+;  (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array (x + 0) 0 int))) in y))))
+;            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in y)))))
+;
+;  (test--> (---> 'c)
+;           (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in y))))
+;           (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array 1 0 int))) in (0 : (ptr c (array 1 0 int))))))))
+;
+;  (test-->> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in (let y = (0 : (ptr c (array (x + 0) 0 int))) in y))))
+;            (term ((() ()) (0 : (ptr c (array 1 0 int))))))
+;
+;  ;; E-Malloc (cases where it gets stuck)
+;  (test-->> (---> 'c)
+;            (term ((() ()) (malloc c (array 2 3 int))))
+;            (term ((() ()) (malloc c (array 2 3 int)))))
+;
+;  (test-->> (---> 'c)
+;            (term ((() ()) (malloc c (array 0 3 int))))
+;            (term ((((0 : int) (0 : int) (0 : int)) ()) (1 : (ptr c (array 0 3 int))))))
+;
+;  ;; E-Malloc (empty)
+;  (test-->> (---> 'c)
+;            (term ((() ()) (malloc c (array 0 -1 int))))
+;            (term ((() ()) (0 : (ptr c (array 0 -1 int))))))
+;
+;  (test-->> (---> 'c)
+;            (term ((((1 : int)) ()) (malloc c (array 0 0 int))))
+;            (term ((((1 : int)) ()) (0 : (ptr c (array 0 0 int))))))
+;
+;
+;  (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array (x + 0) 0 int))) in
+;                                (let z = (cast int y) in (malloc c (array 0 (z + 0) int)))))))
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (cast int y) in (malloc c (array 0 (z + 0) int))))))))
+;
+;   (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (cast int y) in (malloc c (array 0 (z + 0) int)))))))
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (cast int (4 : (ptr c (array 1 0 int)))) in (malloc c (array 0 (z + 0) int))))))))
+;
+;  (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (cast int (4 : (ptr c (array 1 0 int)))) in (malloc c (array 0 (z + 0) int)))))))
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (4 : int) in (malloc c (array 0 (z + 0) int))))))))
+;
+;  (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (4 : int) in (malloc c (array 0 (z + 0) int)))))))
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (4 : int) in (malloc c (array 0 4 int))))))))
+;
+;  (test-->> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in
+;                           (let y = (4 : (ptr c (array 1 0 int))) in
+;                                (let z = (4 : int) in (malloc c (array 0 4 int)))))))
+;            (term ((((0 : int) (0 : int) (0 : int) (0 : int)) ()) (1 : (ptr c (array 0 4 int))))))
+;
+;  (test--> (---> 'c)
+;            (term ((() ()) (let x = (1 : int) in
+;                           (* ((malloc c (array 0 (x + 0) int)) + x)))))
+;            (term ((() ()) (let x = (1 : int) in
+;                           (* ((malloc c (array 0 1 int)) + x))))))
+;
+;  (test--> (---> 'c)
+;           (term ((() ()) (let x = (1 : int) in
+;                          (* ((malloc c (array 0 1 int)) + x)))))
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* ((1 : (ptr c (array 0 1 int))) + x))))))
+;
+;    (test--> (---> 'c)
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* ((1 : (ptr c (array 0 1 int))) + x)))))
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* ((1 : (ptr c (array 0 1 int))) + (1 : int)))))))
+;
+;  (test--> (---> 'c)
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* ((1 : (ptr c (array 0 1 int))) + x)))))
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* ((1 : (ptr c (array 0 1 int))) + (1 : int)))))))
+;
+;  (test--> (---> 'c)
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* ((1 : (ptr c (array 0 1 int))) + (1 : int))))))
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* (2 : (ptr c (array -1 0 int))))))))
+;
+;  (test--> (---> 'c)
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* (2 : (ptr c (array -1 0 int)))))))
+;           (term ((((0 : int)) ()) Bounds)))
+;
+;  (test--> (---> 'c)
+;           (term ((((0 : int)) ()) (let x = (1 : int) in
+;                                   (* (2 : (ptr t (array -1 0 int)))))))
+;           (term ((((0 : int)) ()) Null)))
 
   )
 
-(module+ test
-  (parameterize ((*Fs* (term (((defun  ((x : int) (x + (1 : int))) : int)      ; (fun (x ...) τ (τ ...)))
-                             (defun ((y : int) (y + (2 : int))) : int)      ; (+2) at position 1
-                             (defun ((p : int) (q : int) (p + q)) : int)
-                             )
-                             ((defun ((x : int) (x + (1 : int))) : int)      ; (+1) at position 0
-                             (defun ((y : int) (y + (2 : int))) : int)      ; (+2) at position 1
-                             (defun ((p : int) (q : int) (p + q)) : int)
-                             )))))        ; (+)  at position 2
-    (test--> (---> 'c)
-           (term ((() ()) (call (1 : (ptr c (fun () int (int)))) (4 : int))))
-           (term ((() ()) (let y = (4 : int) in (y + (1 : int))))))
-    (test--> (---> 'c)
-           (term ((() ()) (call (3 : (ptr c (fun () int (int int)))) (4 : int) (5 : int))))
-           (term ((() ()) (let p = (4 : int) in (let q = (5 : int) in (p + q))))))
-    )
-
-   (parameterize ((*Fs* (term (((defun ((x : (ptr c (ntarray 0 0 int)))    ;strlen
-                               (if (* x)
-                                   ((1 : int) +
-                                          (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (cast (ptr c (ntarray 0 0 int)) (x + (1 : int)))))
-                                       (0 : int))) : int))
-                               ((defun ((x : (ptr t (ntarray 0 0 int)))    ;strlen
-                               (if (* x)
-                                   ((1 : int) +
-                                          (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (cast (ptr t (ntarray 0 0 int)) (x + (1 : int)))))
-                                       (0 : int))) : int))))))
-
-    (test-->> (---> 'c)
-           (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-                  (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int)))))) (1 : (ptr c (ntarray 0 0 int))))))
-           (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-                  (3 : int))))
-     )
-
- (parameterize ((*Fs* (term (((defun ((x : (ptr c (ntarray 0 0 int)))    ;strlen
-                               (if (* x)
-                                   ((1 : int) +
-                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                       (0 : int))) : int))
-                            ((defun ((x : (ptr t (ntarray 0 0 int)))    ;strlen
-                               (if (* x)
-                                   ((1 : int) +
-                                              (call (1 : (ptr t (fun () int ((ptr t (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                       (0 : int))) : int))))))
-    (test-->>
-     (---> 'c)
-
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int)))))) (1 : (ptr c (ntarray 0 0 int))))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (3 : int)))))
-
-   ;; arity
-  (parameterize ((*Fs* (term (((defun ((x : int)
-                               (x + (1 : int))) : int))
-                              ((defun ((x : int)
-                               (x + (1 : int))) : int))))))
-    (test-->>
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (call (1 : (ptr c (fun () int (int)))) (2 : int) (2 : int) )))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (call (1 : (ptr c (fun () int (int)))) (2 : int) (2 : int) ))))
-    (test-->>
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (call (1 : (ptr c (fun () int (int)))) (2 : int) )))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (3 : int)))))
-
-  (parameterize ((*Fs* (term (((defun ((x : (ptr c (ntarray 0 0 int)))    ;strlen
-                               (if (* x)
-                                   ((1 : int) +
-                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                       (0 : int))) : int))
-                              ((defun ((x : (ptr t (ntarray 0 0 int)))    ;strlen
-                               (if (* x)
-                                   ((1 : int) +
-                                              (call  (1 : (ptr t (fun () int ((ptr t (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                       (0 : int))) : int))))))
-    (test-->
-     (---> 'c)
-
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (call  (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int)))))) (1 : (ptr c (ntarray 0 0 int))))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 0 int))) in
-                 (if (* x)
-                     ((1 : int) +
-                                (call  (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                            (x + (1 : int))))
-                     (0 : int))))))
-
-    (test-->
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 0 int))) in
-                 (if (* x)
-                     ((1 : int) +
-                                (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                            (x + (1 : int))))
-                     (0 : int)))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 (if (1 : int)
-                     ((1 : int) +
-                                (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                            (x + (1 : int))))
-                     (0 : int))))))
-
-    (test-->
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 (if (1 : int)
-                     ((1 : int) +
-                                (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                            (x + (1 : int))))
-                     (0 : int)))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                        (x + (1 : int))))))))
-
-    (test-->
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                        (x + (1 : int)))))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                        ((1 : (ptr c (ntarray 0 1 int))) + (1 : int))))))))
-
-    (test-->
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                        ((1 : (ptr c (ntarray 0 1 int))) + (1 : int)))))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                        (2 : (ptr c (ntarray -1 0 int)))))))))
-
-    (test-->
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                        (2 : (ptr c (ntarray -1 0 int))))))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                  (let x = (2 : (ptr c (ntarray -1 0 int))) in
-                       (if (* x)
-                                   ((1 : int) +
-                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                   (0 : int))))))))
-
-    (test-->
-     (---> 'c)
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                  (let x = (2 : (ptr c (ntarray -1 0 int))) in
-                       (if (* x)
-                                   ((1 : int) +
-                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                   (0 : int)))))))
-     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
-            (let x = (1 : (ptr c (ntarray 0 1 int))) in
-                 ((1 : int) +
-                  (let x = (2 : (ptr c (ntarray -1 1 int))) in
-                       (if (1 : int)
-                                   ((1 : int) +
-                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
-                                          (x + (1 : int))))
-                                       (0 : int))))))))
-    )
-)
+;(module+ test
+;  (parameterize ((*Fs* (term (((defun  ((x : int) (x + (1 : int))) : int)      ; (fun (x ...) τ (τ ...)))
+;                             (defun ((y : int) (y + (2 : int))) : int)      ; (+2) at position 1
+;                             (defun ((p : int) (q : int) (p + q)) : int)
+;                             )
+;                             ((defun ((x : int) (x + (1 : int))) : int)      ; (+1) at position 0
+;                             (defun ((y : int) (y + (2 : int))) : int)      ; (+2) at position 1
+;                             (defun ((p : int) (q : int) (p + q)) : int)
+;                             )))))        ; (+)  at position 2
+;    (test--> (---> 'c)
+;           (term ((() ()) (call (1 : (ptr c (fun () int (int)))) (4 : int))))
+;           (term ((() ()) (let y = (4 : int) in (y + (1 : int))))))
+;    (test--> (---> 'c)
+;           (term ((() ()) (call (3 : (ptr c (fun () int (int int)))) (4 : int) (5 : int))))
+;           (term ((() ()) (let p = (4 : int) in (let q = (5 : int) in (p + q))))))
+;    )
+;
+;   (parameterize ((*Fs* (term (((defun ((x : (ptr c (ntarray 0 0 int)))    ;strlen
+;                               (if (* x)
+;                                   ((1 : int) +
+;                                          (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (cast (ptr c (ntarray 0 0 int)) (x + (1 : int)))))
+;                                       (0 : int))) : int))
+;                               ((defun ((x : (ptr t (ntarray 0 0 int)))    ;strlen
+;                               (if (* x)
+;                                   ((1 : int) +
+;                                          (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (cast (ptr t (ntarray 0 0 int)) (x + (1 : int)))))
+;                                       (0 : int))) : int))))))
+;
+;    (test-->> (---> 'c)
+;           (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;                  (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int)))))) (1 : (ptr c (ntarray 0 0 int))))))
+;           (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;                  (3 : int))))
+;     )
+;
+; (parameterize ((*Fs* (term (((defun ((x : (ptr c (ntarray 0 0 int)))    ;strlen
+;                               (if (* x)
+;                                   ((1 : int) +
+;                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                       (0 : int))) : int))
+;                            ((defun ((x : (ptr t (ntarray 0 0 int)))    ;strlen
+;                               (if (* x)
+;                                   ((1 : int) +
+;                                              (call (1 : (ptr t (fun () int ((ptr t (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                       (0 : int))) : int))))))
+;    (test-->>
+;     (---> 'c)
+;
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int)))))) (1 : (ptr c (ntarray 0 0 int))))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (3 : int)))))
+;
+;   ;; arity
+;  (parameterize ((*Fs* (term (((defun ((x : int)
+;                               (x + (1 : int))) : int))
+;                              ((defun ((x : int)
+;                               (x + (1 : int))) : int))))))
+;    (test-->>
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (call (1 : (ptr c (fun () int (int)))) (2 : int) (2 : int) )))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (call (1 : (ptr c (fun () int (int)))) (2 : int) (2 : int) ))))
+;    (test-->>
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (call (1 : (ptr c (fun () int (int)))) (2 : int) )))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (3 : int)))))
+;
+;  (parameterize ((*Fs* (term (((defun ((x : (ptr c (ntarray 0 0 int)))    ;strlen
+;                               (if (* x)
+;                                   ((1 : int) +
+;                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                       (0 : int))) : int))
+;                              ((defun ((x : (ptr t (ntarray 0 0 int)))    ;strlen
+;                               (if (* x)
+;                                   ((1 : int) +
+;                                              (call  (1 : (ptr t (fun () int ((ptr t (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                       (0 : int))) : int))))))
+;    (test-->
+;     (---> 'c)
+;
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (call  (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int)))))) (1 : (ptr c (ntarray 0 0 int))))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 0 int))) in
+;                 (if (* x)
+;                     ((1 : int) +
+;                                (call  (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                            (x + (1 : int))))
+;                     (0 : int))))))
+;
+;    (test-->
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 0 int))) in
+;                 (if (* x)
+;                     ((1 : int) +
+;                                (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                            (x + (1 : int))))
+;                     (0 : int)))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 (if (1 : int)
+;                     ((1 : int) +
+;                                (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                            (x + (1 : int))))
+;                     (0 : int))))))
+;
+;    (test-->
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 (if (1 : int)
+;                     ((1 : int) +
+;                                (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                            (x + (1 : int))))
+;                     (0 : int)))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                        (x + (1 : int))))))))
+;
+;    (test-->
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                        (x + (1 : int)))))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                        ((1 : (ptr c (ntarray 0 1 int))) + (1 : int))))))))
+;
+;    (test-->
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                        ((1 : (ptr c (ntarray 0 1 int))) + (1 : int)))))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                        (2 : (ptr c (ntarray -1 0 int)))))))))
+;
+;    (test-->
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                            (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                        (2 : (ptr c (ntarray -1 0 int))))))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                  (let x = (2 : (ptr c (ntarray -1 0 int))) in
+;                       (if (* x)
+;                                   ((1 : int) +
+;                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                   (0 : int))))))))
+;
+;    (test-->
+;     (---> 'c)
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                  (let x = (2 : (ptr c (ntarray -1 0 int))) in
+;                       (if (* x)
+;                                   ((1 : int) +
+;                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                   (0 : int)))))))
+;     (term ((((1 : int) (1 : int) (1 : int) (0 : int)) ())
+;            (let x = (1 : (ptr c (ntarray 0 1 int))) in
+;                 ((1 : int) +
+;                  (let x = (2 : (ptr c (ntarray -1 1 int))) in
+;                       (if (1 : int)
+;                                   ((1 : int) +
+;                                              (call (1 : (ptr c (fun () int ((ptr c (ntarray 0 0 int))))))
+;                                          (x + (1 : int))))
+;                                       (0 : int))))))))
+;    )
+;)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;Test functions
 
-(module+ test
-  (test-equal (term (⊢types () (ntarray 0 0 int))) (term (int)))
-  (test-equal (term (⊢types () (ntarray 0 1 int))) (term (int int)))
-
-  (test--> ~~>
-           (term ((((8 : int) (0 : int)) ())
-                  (let x = (1 : (ptr c (ntarray 0 0 int))) in (* x))))
-           (term ((((8 : int) (0 : int)) ())
-                  (let x = (1 : (ptr c (ntarray 0 1 int))) in (8 : int)))))
-
-  (test-->>∃ ~~>
-             (term ((((8 : int) (0 : int)) ())
-                    (let x = (1 : (ptr c (ntarray 0 0 int))) in (* x))))
-             (curry (default-equiv)
-                    (term ((((8 : int) (0 : int)) ())
-                           (let x = (1 : (ptr c (ntarray 0 1 int))) in (8 : int))))))
-
-  (test-->> (---> 'c)
-            (term ((((8 : int) (0 : int)) ())
-                   (let x = (1 : (ptr c (ntarray 0 0 int))) in
-                        (if (* x)
-                            (let y = (x + (1 : int)) in
-                                 (* y))
-                            (1 : int)))))
-            (term ((((8 : int) (0 : int)) ()) (0 : int))))
-  (test-->> (---> 'c)
-            (term ((((8 : int) (0 : int)) ())
-                   (if (5 : int) (2 : int) (3 : int))))
-            (term ((((8 : int) (0 : int)) ()) (2 : int)))))
+;(module+ test
+;  (test-equal (term (⊢types () (ntarray 0 0 int))) (term (int)))
+;  (test-equal (term (⊢types () (ntarray 0 1 int))) (term (int int)))
+;
+;  (test--> ~~>
+;           (term ((((8 : int) (0 : int)) ())
+;                  (let x = (1 : (ptr c (ntarray 0 0 int))) in (* x))))
+;           (term ((((8 : int) (0 : int)) ())
+;                  (let x = (1 : (ptr c (ntarray 0 1 int))) in (8 : int)))))
+;
+;  (test-->>∃ ~~>
+;             (term ((((8 : int) (0 : int)) ())
+;                    (let x = (1 : (ptr c (ntarray 0 0 int))) in (* x))))
+;             (curry (default-equiv)
+;                    (term ((((8 : int) (0 : int)) ())
+;                           (let x = (1 : (ptr c (ntarray 0 1 int))) in (8 : int))))))
+;
+;  (test-->> (---> 'c)
+;            (term ((((8 : int) (0 : int)) ())
+;                   (let x = (1 : (ptr c (ntarray 0 0 int))) in
+;                        (if (* x)
+;                            (let y = (x + (1 : int)) in
+;                                 (* y))
+;                            (1 : int)))))
+;            (term ((((8 : int) (0 : int)) ()) (0 : int))))
+;  (test-->> (---> 'c)
+;            (term ((((8 : int) (0 : int)) ())
+;                   (if (5 : int) (2 : int) (3 : int))))
+;            (term ((((8 : int) (0 : int)) ()) (2 : int)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1467,416 +1481,416 @@
 
 (define --->^
   (reduction-relation
-   CoreChkC+ #:domain (eHs ee) #:codomain (eHs er)
-   (--> (eHs (in-hole eE (i_0 + i_1)))
-        (eHs (in-hole eE ,(+ (term i_0) (term i_1))))
+   CoreChkC+ #:domain (eH ee) #:codomain (eH er)
+   (--> (eH (in-hole eE (i_0 + i_1)))
+        (eH (in-hole eE ,(+ (term i_0) (term i_1))))
         eE-Add)
 
-   (--> (eHs (in-hole eE (i_0 <=? i_1)))
-        (eHs (in-hole eE ,(if (<= (term i_0) (term i_1)) 1 0)))
+   (--> (eH (in-hole eE (i_0 <=? i_1)))
+        (eH (in-hole eE ,(if (<= (term i_0) (term i_1)) 1 0)))
         eE-Leq)
 
-   (--> (eHs (in-hole eE (i_0 - i_1)))
-        (eHs (in-hole eE ,(- (term i_0) (term i_1))))
+   (--> (eH (in-hole eE (i_0 - i_1)))
+        (eH (in-hole eE ,(- (term i_0) (term i_1))))
         eE-Subtract)
 
    ;; apparently negative values (a.k.a bounds) should never appear on the heap
-   (--> (eHs (in-hole eE (star-l n)))
-        (eHs (in-hole eE n_0))
-        (where eH (⊢eheap-by-mode eHs c))
+   (--> (eH (in-hole eE (star-l n)))
+        (eH (in-hole eE n_0))
+        (where eH (⊢eheap-by-mode eH c))
         (where n_0 (⊢eheap-lookup eH n))
         eE-DerefLeft)
 
-   (--> (eHs (in-hole eE (star-r n)))
-        (eHs (in-hole eE n_0))
-        (where eH (⊢eheap-by-mode eHs u))
+   (--> (eH (in-hole eE (star-r n)))
+        (eH (in-hole eE n_0))
+        (where eH (⊢eheap-by-mode eH u))
         (where n_0 (⊢eheap-lookup eH n))
         eE-DerefRight)
 
    ;; don't forget the underscore!!!!!
-   (--> (eHs (in-hole eE (star-l n = n_0)))
-        (eHs_′ (in-hole eE n_0))
-        (where eHs_′ (⊢eheap-update eHs c n n_0))
+   (--> (eH (in-hole eE (star-l n = n_0)))
+        (eH_′ (in-hole eE n_0))
+        (where eH_′ (⊢eheap-update eH c n n_0))
         eE-AssignLeft)
 
-   (--> (eHs (in-hole eE (star-r n = n_0)))
-        (eHs_′ (in-hole eE n_0))
-        (where eHs_′ (⊢eheap-update eHs u n n_0))
+   (--> (eH (in-hole eE (star-r n = n_0)))
+        (eH_′ (in-hole eE n_0))
+        (where eH_′ (⊢eheap-update eH u n n_0))
         eE-AssignRight)
 
-   (--> (eHs (in-hole eE (let x = i_0 in
+   (--> (eH (in-hole eE (let x = i_0 in
                                 (in-hole eE_′ (x = i_1)))))
-        (eHs (in-hole eE (let x = i_1 in
+        (eH (in-hole eE (let x = i_1 in
                                 (in-hole eE_′ i_1))))
         eE-Set)
 
-   (--> (eHs (in-hole eE (malloc-l n_1)))
-        (eHs_′ (in-hole eE n_2))
+   (--> (eH (in-hole eE (malloc-l n_1)))
+        (eH_′ (in-hole eE n_2))
         (side-condition (positive? (term n_1)))
-        (where eH (⊢eheap-by-mode eHs c))
+        (where eH (⊢eheap-by-mode eH c))
         (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
-        (where eHs_′ (⊢update-eheap-by-mode eHs eH_′ c))
+        (where eH_′ (⊢update-eheap-by-mode eH eH_′ c))
         (where n_2 ,(add1 (length (term eH))))
         eE-MallocLeft)
 
-   (--> (eHs (in-hole eE (malloc-r n_1)))
-        (eHs_′ (in-hole eE n_2))
+   (--> (eH (in-hole eE (malloc-r n_1)))
+        (eH_′ (in-hole eE n_2))
         (side-condition (positive? (term n_1)))
-        (where eH (⊢eheap-by-mode eHs u))
+        (where eH (⊢eheap-by-mode eH u))
         (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
-        (where eHs_′ (⊢update-eheap-by-mode eHs eH_′ u))
+        (where eH_′ (⊢update-eheap-by-mode eH eH_′ u))
         (where n_2 ,(add1 (length (term eH))))
         eE-MallocRight)
 
-   (--> (eHs (in-hole eE (malloc-l i_1)))
-        (eHs (in-hole eE 0))
+   (--> (eH (in-hole eE (malloc-l i_1)))
+        (eH (in-hole eE 0))
         (side-condition (not (positive? (term i_1))))
         eE-MallocLeftZero)
 
-   (--> (eHs (in-hole eE (malloc-r i_1)))
-        (eHs (in-hole eE 0))
+   (--> (eH (in-hole eE (malloc-r i_1)))
+        (eH (in-hole eE 0))
         (side-condition (not (positive? (term i_1))))
         eE-MallocRightZero)
 
-   (--> (eHs (in-hole eE (let x = i_0 in i_1)))
-        (eHs (in-hole eE i_1))
+   (--> (eH (in-hole eE (let x = i_0 in i_1)))
+        (eH (in-hole eE i_1))
         eE-Let)
 
-   (--> (eHs (in-hole eE (let x = i_0 in (in-hole eE_′ x))))
-        (eHs (in-hole eE (let x = i_0 in (in-hole eE_′ i_0))))
+   (--> (eH (in-hole eE (let x = i_0 in (in-hole eE_′ x))))
+        (eH (in-hole eE (let x = i_0 in (in-hole eE_′ i_0))))
         eE-Var)
 
-   (--> (eHs (in-hole eE (if i ee _)))
-        (eHs (in-hole eE ee))
+   (--> (eH (in-hole eE (if i ee _)))
+        (eH (in-hole eE ee))
         (side-condition (not (zero? (term i))))
         eE-IfT)
 
-   (--> (eHs (in-hole eE (if 0 _ ee)))
-        (eHs (in-hole eE ee))
+   (--> (eH (in-hole eE (if 0 _ ee)))
+        (eH (in-hole eE ee))
         eE-IfF)
 
-   (--> (eHs (in-hole eE (strlen-l i)))
-        (eHs (in-hole eE i_0))
-        (where eH (⊢eheap-by-mode eHs c))
+   (--> (eH (in-hole eE (strlen-l i)))
+        (eH (in-hole eE i_0))
+        (where eH (⊢eheap-by-mode eH c))
         (where i_0 (⊢estrlen i eH))
         eE-StrLeft)
 
-   (--> (eHs (in-hole eE (strlen-r i)))
-        (eHs (in-hole eE i_0))
-        (where eH (⊢eheap-by-mode eHs u))
+   (--> (eH (in-hole eE (strlen-r i)))
+        (eH (in-hole eE i_0))
+        (where eH (⊢eheap-by-mode eH u))
         (where i_0 (⊢estrlen i eH))
         eE-StrRight)
 
-   (--> (eHs (in-hole eE (call-l i i_1 ..._1)))
-        (eHs (in-hole eE (⊢ebuild-call-stack ee (x i_1) ...)))
+   (--> (eH (in-hole eE (call-l i i_1 ..._1)))
+        (eH (in-hole eE (⊢ebuild-call-stack ee (x i_1) ...)))
         (where (defun x ..._1 ee) (⊢efun-lookup ,(*eFs*) i c))
         eE-FunLeft)
 
-   (--> (eHs (in-hole eE (call-r i i_1 ..._1)))
-        (eHs (in-hole eE (⊢ebuild-call-stack ee (x i_1) ...)))
+   (--> (eH (in-hole eE (call-r i i_1 ..._1)))
+        (eH (in-hole eE (⊢ebuild-call-stack ee (x i_1) ...)))
         (where (defun x ..._1 ee) (⊢efun-lookup ,(*eFs*) i u))
         eE-FunRight)
 
-   (--> (eHs (in-hole eE (enull)))
-        (eHs Null)
+   (--> (eH (in-hole eE (enull)))
+        (eH Null)
         eX-Null)
 
-   (--> (eHs (in-hole eE (ebounds)))
-        (eHs Bounds)
+   (--> (eH (in-hole eE (ebounds)))
+        (eH Bounds)
         eX-Bounds)))
 
 (define --->^CEK
   (reduction-relation
    CoreChkC+ 
-   (--> (eHs eΣ (i_0 + i_1) (eK ...))
-        (eHs eΣ ,(+ (term i_0) (term i_1)) (eK ...))
+   (--> (eH eΣ (i_0 + i_1) (eK ...))
+        (eH eΣ ,(+ (term i_0) (term i_1)) (eK ...))
         eE-Add)
 
-   (--> (eHs eΣ (i_0 <=? i_1) (eK ...))
-        (eHs eΣ ,(if (<= (term i_0) (term i_1)) 1 0) (eK ...))
+   (--> (eH eΣ (i_0 <=? i_1) (eK ...))
+        (eH eΣ ,(if (<= (term i_0) (term i_1)) 1 0) (eK ...))
         eE-Leq)
 
-   (--> (eHs eΣ (i_0 - i_1) (eK ...))
-        (eHs eΣ ,(- (term i_0) (term i_1)) (eK ...))
+   (--> (eH eΣ (i_0 - i_1) (eK ...))
+        (eH eΣ ,(- (term i_0) (term i_1)) (eK ...))
         eE-Subtract)
 
-   (--> (eHs eΣ (star-l n) (eK ...))
-        (eHs eΣ n_0 (eK ...))
-        (where eH (⊢eheap-by-mode eHs c))
+   (--> (eH eΣ (star-l n) (eK ...))
+        (eH eΣ n_0 (eK ...))
+        (where eH (⊢eheap-by-mode eH c))
         (where n_0 (⊢eheap-lookup eH n))
         eE-DerefLeft)
 
-   (--> (eHs eΣ (star-r n) (eK ...))
-        (eHs eΣ n_0 (eK ...))
-        (where eH (⊢eheap-by-mode eHs u))
+   (--> (eH eΣ (star-r n) (eK ...))
+        (eH eΣ n_0 (eK ...))
+        (where eH (⊢eheap-by-mode eH u))
         (where n_0 (⊢eheap-lookup eH n))
         eE-DerefRight)
 
-   (--> (eHs eΣ (star-l n = n_0) (eK ...))
-        (eHs_′ eΣ n_0 (eK ...))
-        (where eH (⊢eheap-by-mode eHs c))
-        (where eHs_′ (⊢eheap-update eHs c n n_0))
+   (--> (eH eΣ (star-l n = n_0) (eK ...))
+        (eH_′ eΣ n_0 (eK ...))
+        (where eH (⊢eheap-by-mode eH c))
+        (where eH_′ (⊢eheap-update eH c n n_0))
         eE-AssignLeft)
 
-   (--> (eHs eΣ (star-r n = n_0) (eK ...))
-        (eHs_′ eΣ n_0 (eK ...))
-        (where eH (⊢eheap-by-mode eHs u))
-        (where eHs_′ (⊢eheap-update eHs u n n_0))
+   (--> (eH eΣ (star-r n = n_0) (eK ...))
+        (eH_′ eΣ n_0 (eK ...))
+        (where eH (⊢eheap-by-mode eH u))
+        (where eH_′ (⊢eheap-update eH u n n_0))
         eE-AssignRight)
 
-   (--> (eHs ((x_0 i_0) ... (x _) (x_2 i_2) ...) (x = i_1) (eK ...))
-        (eHs ((x_0 i_0) ... (x i_1) (x_2 i_2) ...) i_1 (eK ...))
+   (--> (eH ((x_0 i_0) ... (x _) (x_2 i_2) ...) (x = i_1) (eK ...))
+        (eH ((x_0 i_0) ... (x i_1) (x_2 i_2) ...) i_1 (eK ...))
         eE-Set)
 
-   (--> (eHs eΣ (malloc-l n_1) (eK ...))
-        (eHs_′ eΣ n_2 (eK ...))
+   (--> (eH eΣ (malloc-l n_1) (eK ...))
+        (eH_′ eΣ n_2 (eK ...))
         (side-condition (positive? (term n_1)))
-        (where eH (⊢eheap-by-mode eHs c))
+        (where eH (⊢eheap-by-mode eH c))
         (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
-        (where eHs_′ (⊢update-eheap-by-mode eHs eH_′ c))
+        (where eH_′ (⊢update-eheap-by-mode eH eH_′ c))
         (where n_2 ,(add1 (length (term eH))))
         eE-MallocLeft)
 
-   (--> (eHs eΣ (malloc-r n_1) (eK ...))
-        (eHs_′ eΣ n_2 (eK ...))
+   (--> (eH eΣ (malloc-r n_1) (eK ...))
+        (eH_′ eΣ n_2 (eK ...))
         (side-condition (positive? (term n_1)))
-        (where eH (⊢eheap-by-mode eHs u))
+        (where eH (⊢eheap-by-mode eH u))
         (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
-        (where eHs_′ (⊢update-eheap-by-mode eHs eH_′ u))
+        (where eH_′ (⊢update-eheap-by-mode eH eH_′ u))
         (where n_2 ,(add1 (length (term eH))))
         eE-MallocRight)
 
-   (--> (eHs eΣ (malloc-l i_1) (eK ...))
-        (eHs eΣ 0 (eK ...))
+   (--> (eH eΣ (malloc-l i_1) (eK ...))
+        (eH eΣ 0 (eK ...))
         (side-condition (not (positive? (term i_1))))
         eE-MallocLeftZero)
 
-   (--> (eHs eΣ (malloc-r i_1) (eK ...))
-        (eHs eΣ 0 (eK ...))
+   (--> (eH eΣ (malloc-r i_1) (eK ...))
+        (eH eΣ 0 (eK ...))
         (side-condition (not (positive? (term i_1))))
         eE-MallocRightZero)
 
 
-   (--> (eHs ((x i) ...) (let x_0 = i_0 in ee) (eK ...))
-        (eHs ((x_0 i_0) (x i) ...) ee (pop eK ...))
+   (--> (eH ((x i) ...) (let x_0 = i_0 in ee) (eK ...))
+        (eH ((x_0 i_0) (x i) ...) ee (pop eK ...))
         eE-Let)
 
-   (--> (eHs (name eΣ (_ ... (x i) _ ...)) x (eK ...))
-        (eHs eΣ i (eK ...))
+   (--> (eH (name eΣ (_ ... (x i) _ ...)) x (eK ...))
+        (eH eΣ i (eK ...))
         eE-Var)
 
-   (--> (eHs eΣ (if i ee _) (eK ...))
-        (eHs eΣ ee (eK ...))
+   (--> (eH eΣ (if i ee _) (eK ...))
+        (eH eΣ ee (eK ...))
         (side-condition (not (zero? (term i))))
         eE-IfT)
 
-   (--> (eHs eΣ (if 0 _ ee) (eK ...))
-        (eHs eΣ ee (eK ...))
+   (--> (eH eΣ (if 0 _ ee) (eK ...))
+        (eH eΣ ee (eK ...))
         eE-IfF)
 
-   (--> (eHs eΣ (strlen-l i) (eK ...))
-        (eHs eΣ i_0 (eK ...))
-        (where eH (⊢eheap-by-mode eHs c))
+   (--> (eH eΣ (strlen-l i) (eK ...))
+        (eH eΣ i_0 (eK ...))
+        (where eH (⊢eheap-by-mode eH c))
         (where i_0 (⊢estrlen i eH))
         eE-StrLeft)
 
-   (--> (eHs eΣ (strlen-r i) (eK ...))
-        (eHs eΣ i_0 (eK ...))
-        (where eH (⊢eheap-by-mode eHs u))
+   (--> (eH eΣ (strlen-r i) (eK ...))
+        (eH eΣ i_0 (eK ...))
+        (where eH (⊢eheap-by-mode eH u))
         (where i_0 (⊢estrlen i eH))
         eE-StrRight)
 
-   (--> (eHs eΣ (call-l i i_1 ..._1) (eK ...))
-        (eHs eΣ (⊢ebuild-call-stack ee (x i_1) ...) (eK ...))
+   (--> (eH eΣ (call-l i i_1 ..._1) (eK ...))
+        (eH eΣ (⊢ebuild-call-stack ee (x i_1) ...) (eK ...))
         (where (defun x ..._1 ee) (⊢efun-lookup (⊢efheap-by-mode ,(*eFs*) c) i))
         eE-FunLeft)
 
-   (--> (eHs eΣ (call-r i i_1 ..._1) (eK ...))
-        (eHs eΣ (⊢ebuild-call-stack ee (x i_1) ...) (eK ...))
+   (--> (eH eΣ (call-r i i_1 ..._1) (eK ...))
+        (eH eΣ (⊢ebuild-call-stack ee (x i_1) ...) (eK ...))
         (where (defun x ..._1 ee) (⊢efun-lookup (⊢efheap-by-mode ,(*eFs*) u) i))
         eE-FunRight)
 
    
-   (--> (eHs eΣ (enull) (eK ...))
-        (eHs () Null ())
+   (--> (eH eΣ (enull) (eK ...))
+        (eH () Null ())
         eX-Null)
 
-   (--> (eHs eΣ (ebounds) (eK ...))
-        (eHs () Bounds ())
+   (--> (eH eΣ (ebounds) (eK ...))
+        (eH () Bounds ())
         eX-Bounds)
 
    ;; eval
-   (--> (eHs eΣ (if eS ee_0 ee_1) (eK ...))
-        (eHs eΣ eS ((if [] ee_0 ee_1) eK ...))
+   (--> (eH eΣ (if eS ee_0 ee_1) (eK ...))
+        (eH eΣ eS ((if [] ee_0 ee_1) eK ...))
         eE-If-Eval)
 
-   (--> (eHs eΣ i ((if [] ee_0 ee_1) eK ...))
-        (eHs eΣ (if i ee_0 ee_1) (eK ...))
+   (--> (eH eΣ i ((if [] ee_0 ee_1) eK ...))
+        (eH eΣ (if i ee_0 ee_1) (eK ...))
         eE-If-Cont)
 
-   (--> (eHs eΣ i ((strlen-l []) eK ...))
-        (eHs eΣ (strlen-r i) (eK ...))
+   (--> (eH eΣ i ((strlen-l []) eK ...))
+        (eH eΣ (strlen-r i) (eK ...))
         eE-StrlenLeft-Cont)
 
-   (--> (eHs eΣ i ((strlen-r []) eK ...))
-        (eHs eΣ (strlen-r i) (eK ...))
+   (--> (eH eΣ i ((strlen-r []) eK ...))
+        (eH eΣ (strlen-r i) (eK ...))
         eE-StrlenRight-Cont)
 
-   (--> (eHs eΣ (strlen-l eS) (eK ...))
-        (eHs eΣ eS ((strlen-l []) eK ...))
+   (--> (eH eΣ (strlen-l eS) (eK ...))
+        (eH eΣ eS ((strlen-l []) eK ...))
         eE-StrlenLeft-Eval)
 
-   (--> (eHs eΣ (strlen-r eS) (eK ...))
-        (eHs eΣ eS ((strlen-r []) eK ...))
+   (--> (eH eΣ (strlen-r eS) (eK ...))
+        (eH eΣ eS ((strlen-r []) eK ...))
         eE-StrlenRight-Eval)
 
-   (--> (eHs eΣ i ((malloc-l []) eK ...))
-        (eHs eΣ (malloc-l i) (eK ...))
+   (--> (eH eΣ i ((malloc-l []) eK ...))
+        (eH eΣ (malloc-l i) (eK ...))
         eE-MallocLeft-Cont)
 
-   (--> (eHs eΣ i ((malloc-r []) eK ...))
-        (eHs eΣ (malloc-r i) (eK ...))
+   (--> (eH eΣ i ((malloc-r []) eK ...))
+        (eH eΣ (malloc-r i) (eK ...))
         eE-MallocRight-Cont)
 
-   (--> (eHs eΣ (malloc-l eS) (eK ...))
-        (eHs eΣ eS ((malloc-l []) eK ...))
+   (--> (eH eΣ (malloc-l eS) (eK ...))
+        (eH eΣ eS ((malloc-l []) eK ...))
         eE-MallocLeft-Eval)
 
-   (--> (eHs eΣ (malloc-r eS) (eK ...))
-        (eHs eΣ eS ((malloc-r []) eK ...))
+   (--> (eH eΣ (malloc-r eS) (eK ...))
+        (eH eΣ eS ((malloc-r []) eK ...))
         eE-MallocRight-Eval)
 
 
-   (--> (eHs eΣ (let x = eS in ee) (eK ...))
-        (eHs eΣ eS ((let x = [] in ee) eK ...))
+   (--> (eH eΣ (let x = eS in ee) (eK ...))
+        (eH eΣ eS ((let x = [] in ee) eK ...))
         eE-Let-Eval0)
 
-   (--> (eHs eΣ i ((let x = [] in ee) eK ...))
-        (eHs eΣ (let x = i in ee) (eK ...))
+   (--> (eH eΣ i ((let x = [] in ee) eK ...))
+        (eH eΣ (let x = i in ee) (eK ...))
         eE-Let-Cont0)
 
 
-   (--> (eHs ((x i) (x_0 i_0) ...) i_1 (pop eK ...))
-        (eHs ((x_0 i_0) ...) i_1 (eK ...))
+   (--> (eH ((x i) (x_0 i_0) ...) i_1 (pop eK ...))
+        (eH ((x_0 i_0) ...) i_1 (eK ...))
         eE-Pop-Cont)
 
-   (--> (eHs eΣ (call-l n_fun n_args ... eS ee_args ...) (eK ...))
-        (eHs eΣ eS ((call-l n_fun n_args ... [] ee_args ...) eK ...))
+   (--> (eH eΣ (call-l n_fun n_args ... eS ee_args ...) (eK ...))
+        (eH eΣ eS ((call-l n_fun n_args ... [] ee_args ...) eK ...))
         eE-FunLeft-Eval)
 
-   (--> (eHs eΣ (call-r n_fun n_args ... eS ee_args ...) (eK ...))
-        (eHs eΣ eS ((call-r n_fun n_args ... [] ee_args ...) eK ...))
+   (--> (eH eΣ (call-r n_fun n_args ... eS ee_args ...) (eK ...))
+        (eH eΣ eS ((call-r n_fun n_args ... [] ee_args ...) eK ...))
         eE-FunRight-Eval)
 
-   (--> (eHs eΣ n ((call-l n_fun n_args ... [] ee_args ...) eK ...))
-        (eHs eΣ (call-l n_fun n_args ... n ee_args ...) (eK ...))
+   (--> (eH eΣ n ((call-l n_fun n_args ... [] ee_args ...) eK ...))
+        (eH eΣ (call-l n_fun n_args ... n ee_args ...) (eK ...))
         eE-FunLeft-Cont)
 
-   (--> (eHs eΣ n ((call-r n_fun n_args ... [] ee_args ...) eK ...))
-        (eHs eΣ (call-r n_fun n_args ... n ee_args ...) (eK ...))
+   (--> (eH eΣ n ((call-r n_fun n_args ... [] ee_args ...) eK ...))
+        (eH eΣ (call-r n_fun n_args ... n ee_args ...) (eK ...))
         eE-FunRight-Cont)
 
-   (--> (eHs eΣ (eS <=? ee) (eK ...))
-        (eHs eΣ eS (([] <=? ee) eK ...))
+   (--> (eH eΣ (eS <=? ee) (eK ...))
+        (eH eΣ eS (([] <=? ee) eK ...))
         eE-Leq-Eval0)
 
-   (--> (eHs eΣ i (([] <=? ee) eK ...))
-        (eHs eΣ (i <=? ee) (eK ...))
+   (--> (eH eΣ i (([] <=? ee) eK ...))
+        (eH eΣ (i <=? ee) (eK ...))
         eE-Leq-Cont0)
 
-   (--> (eHs eΣ (i <=? eS) (eK ...))
-        (eHs eΣ eS ((i <=? []) eK ...))
+   (--> (eH eΣ (i <=? eS) (eK ...))
+        (eH eΣ eS ((i <=? []) eK ...))
         eE-Leq-Eval1)
 
-   (--> (eHs eΣ i_0 ((i <=? []) eK ...))
-        (eHs eΣ (i <=? i_0) (eK ...))
+   (--> (eH eΣ i_0 ((i <=? []) eK ...))
+        (eH eΣ (i <=? i_0) (eK ...))
         eE-Leq-Cont1)
 
-   (--> (eHs eΣ (star-l eS = ee) (eK ...))
-        (eHs eΣ eS ((star-l [] = ee) eK ...))
+   (--> (eH eΣ (star-l eS = ee) (eK ...))
+        (eH eΣ eS ((star-l [] = ee) eK ...))
         eE-AssignLeft-Eval0)
 
-   (--> (eHs eΣ (star-r eS = ee) (eK ...))
-        (eHs eΣ eS ((star-r [] = ee) eK ...))
+   (--> (eH eΣ (star-r eS = ee) (eK ...))
+        (eH eΣ eS ((star-r [] = ee) eK ...))
         eE-AssignRight-Eval0)
 
-   (--> (eHs eΣ i ((star-l [] = ee) eK ...))
-        (eHs eΣ (star-l i = ee) (eK ...))
+   (--> (eH eΣ i ((star-l [] = ee) eK ...))
+        (eH eΣ (star-l i = ee) (eK ...))
         eE-AssignLeft-Cont0)
    
-   (--> (eHs eΣ i ((star-r [] = ee) eK ...))
-        (eHs eΣ (star-r i = ee) (eK ...))
+   (--> (eH eΣ i ((star-r [] = ee) eK ...))
+        (eH eΣ (star-r i = ee) (eK ...))
         eE-AssignRight-Cont0)
 
-   (--> (eHs eΣ (star-l i = eS) (eK ...))
-        (eHs eΣ eS ((star-l i = []) eK ...))
+   (--> (eH eΣ (star-l i = eS) (eK ...))
+        (eH eΣ eS ((star-l i = []) eK ...))
         eE-AssignLeft-Eval1)
 
-   (--> (eHs eΣ (star-r i = eS) (eK ...))
-        (eHs eΣ eS ((star-r i = []) eK ...))
+   (--> (eH eΣ (star-r i = eS) (eK ...))
+        (eH eΣ eS ((star-r i = []) eK ...))
         eE-AssignRight-Eval1)
 
-   (--> (eHs eΣ i_0 ((star-l i = []) eK ...))
-        (eHs eΣ (star-l i = i_0) (eK ...))
+   (--> (eH eΣ i_0 ((star-l i = []) eK ...))
+        (eH eΣ (star-l i = i_0) (eK ...))
         eE-AssignLeft-Cont1)
 
-   (--> (eHs eΣ i_0 ((star-r i = []) eK ...))
-        (eHs eΣ (star-r i = i_0) (eK ...))
+   (--> (eH eΣ i_0 ((star-r i = []) eK ...))
+        (eH eΣ (star-r i = i_0) (eK ...))
         eE-AssignRight-Cont1)
    
-   (--> (eHs eΣ (star-l eS) (eK ...))
-        (eHs eΣ eS ((star-l []) eK ...))
+   (--> (eH eΣ (star-l eS) (eK ...))
+        (eH eΣ eS ((star-l []) eK ...))
         eE-DerefLeft-Eval)
 
-   (--> (eHs eΣ (star-r eS) (eK ...))
-        (eHs eΣ eS ((star-r []) eK ...))
+   (--> (eH eΣ (star-r eS) (eK ...))
+        (eH eΣ eS ((star-r []) eK ...))
         eE-DerefRight-Eval)
    
-   (--> (eHs eΣ i ((star-l []) eK ...))
-        (eHs eΣ (star-l i) (eK ...))
+   (--> (eH eΣ i ((star-l []) eK ...))
+        (eH eΣ (star-l i) (eK ...))
         eE-DerefLeft-Cont)
 
-   (--> (eHs eΣ i ((star-r []) eK ...))
-        (eHs eΣ (star-r i) (eK ...))
+   (--> (eH eΣ i ((star-r []) eK ...))
+        (eH eΣ (star-r i) (eK ...))
         eE-DerefRight-Cont)
    
-   (--> (eHs eΣ (x = eS) (eK ...))
-        (eHs eΣ eS ((x = []) eK ...))
+   (--> (eH eΣ (x = eS) (eK ...))
+        (eH eΣ eS ((x = []) eK ...))
         eE-Set-Eval)
 
-   (--> (eHs eΣ i ((x = []) eK ...))
-        (eHs eΣ i (x = i) (eK ...))
+   (--> (eH eΣ i ((x = []) eK ...))
+        (eH eΣ i (x = i) (eK ...))
         eE-Set-Cont)
 
-   (--> (eHs eΣ (eS + ee) (eK ...))
-        (eHs eΣ eS (([] + ee) eK ...))
+   (--> (eH eΣ (eS + ee) (eK ...))
+        (eH eΣ eS (([] + ee) eK ...))
         eE-Add-Eval0)
 
-   (--> (eHs eΣ i (([] + ee) eK ...))
-        (eHs eΣ (i + ee) (eK ...))
+   (--> (eH eΣ i (([] + ee) eK ...))
+        (eH eΣ (i + ee) (eK ...))
         eE-Add-Cont0)
 
-   (--> (eHs eΣ (i + eS) (eK ...))
-        (eHs eΣ eS ((i + []) eK ...))
+   (--> (eH eΣ (i + eS) (eK ...))
+        (eH eΣ eS ((i + []) eK ...))
         eE-Add-Eval1)
 
-   (--> (eHs eΣ i_0 ((i + []) eK ...))
-        (eHs eΣ (i + i_0) (eK ...))
+   (--> (eH eΣ i_0 ((i + []) eK ...))
+        (eH eΣ (i + i_0) (eK ...))
         eE-Add-Cont1)
 
-   (--> (eHs eΣ (eS - ee) (eK ...))
-        (eHs eΣ eS (([] - ee) eK ...))
+   (--> (eH eΣ (eS - ee) (eK ...))
+        (eH eΣ eS (([] - ee) eK ...))
         eE-Subtract-Eval0)
 
-   (--> (eHs eΣ i (([] - ee) eK ...))
-        (eHs eΣ (i - ee) (eK ...))
+   (--> (eH eΣ i (([] - ee) eK ...))
+        (eH eΣ (i - ee) (eK ...))
         eE-Subtract-Cont0)
 
-   (--> (eHs eΣ (i - eS) (eK ...))
-        (eHs eΣ eS ((i - []) eK ...))
+   (--> (eH eΣ (i - eS) (eK ...))
+        (eH eΣ eS ((i - []) eK ...))
         eE-Subtract-Eval1)
 
-   (--> (eHs eΣ i_0 ((i - []) eK ...))
+   (--> (eH eΣ i_0 ((i - []) eK ...))
         (eHs eΣ (i - i_0) (eK ...))
         eE-Subtract-Cont)))
 

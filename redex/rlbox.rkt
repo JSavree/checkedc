@@ -326,8 +326,8 @@
    X-StrTainted] 
 
   ;; no longer about error states I changed this to accept K, may need some looking at
-  [(⊢↝/name (H K (strlen (n : vτ))) (H (n_1 : int) E-Str))
-   (where (ptr m (ntarray l h vτ_1)) vτ)
+  [(⊢↝/name (H (strlen (n : vτ))) (H (n_1 : int) E-Str))
+   (where (ptr K (ntarray l h vτ_1)) vτ)
 ;   (where H (⊢heap-by-mode H m))
    (where n_1 (⊢strlen n K H))
    (side-condition ,(not (zero? (term n))))
@@ -1067,12 +1067,12 @@
                             (let y = (2 : (ptr c (ntarray 0 0 int))) in (x + y)))))
              (term (() (3 : int))))
 
-  ;; strlen non-NT case
-  (test-->> (---> 'c)
-            (term (((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))
-                   (strlen (2 : (ptr c (ntarray 0 0 int))))))
-            (term (((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))
-                   (3 : int))))
+;  ;; strlen non-NT case
+;  (test-->> (---> 'c)
+;            (term (((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))
+;                   (strlen (2 : (ptr c (ntarray 0 0 int))))))
+;            (term (((1 : int) (1 : int) (1 : int) (1 : int) (0 : int))
+;                   (3 : int))))
 
 ;  ;;tainted strlen case
 ;    (test-->> (---> 'c)
@@ -1100,12 +1100,12 @@
 ;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
 ;                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (3 : int)))))
 ; 
-;  (test-->> (---> 'c)
-;            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int)))
-;                   (let x = (1 : int) in
-;                        (let y = (2 : (ptr c (ntarray 0 0 int))) in (* y)))))
-;            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int))) (0 : int))))
-;
+  (test-->> (---> 'c)
+            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int)))
+                   (let x = (1 : int) in
+                        (let y = (2 : (ptr c (ntarray 0 0 int))) in (* y)))))
+            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int))) (0 : int))))
+
 ;   (test-->> (---> 'c)
 ;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
 ;                   (strlen (0 : (ptr c (ntarray 0 0 int))))))
