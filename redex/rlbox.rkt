@@ -232,6 +232,7 @@
    CoreChkC+ #:domain (H r)
    (--> (H e) (H_′ r_′) (judgment-holds (⊢↝ (H e) (H_′ r_′))))))
 
+;; This needs fixing so that it doesn't use two heaps?
 (define (---> m) ;; top
   (reduction-relation
    CoreChkC+
@@ -475,7 +476,7 @@
    (side-condition ,(not (and (<= (term l) 0) (<= 0 (term h)))))
    E-VarNTOOB])
 
-
+;; These need to be modified so that it does not take two heaps.
 (define-judgment-form CoreChkC+
   #:contract (⊢↝ (H e) (H r))
   #:mode     (⊢↝ I O)
@@ -1100,11 +1101,12 @@
 ;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
 ;                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (3 : int)))))
 ; 
+;; This test doesn't work with 1 heap, will need to be restructured
   (test-->> (---> 'c)
-            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int)))
+            (term (((8 : int) (0 : int))
                    (let x = (1 : int) in
                         (let y = (2 : (ptr c (ntarray 0 0 int))) in (* y)))))
-            (term ((((8 : int) (0 : int)) ((8 : int) (0 : int))) (0 : int))))
+            (term (((8 : int) (0 : int)) (0 : int))))
 
 ;   (test-->> (---> 'c)
 ;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
