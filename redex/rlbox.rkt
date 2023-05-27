@@ -276,18 +276,20 @@
    (where #t (⊢non-nt-deref-or-strlen? vτ e))
    E-VarNonNT]
 
+  ;; I need to fix these heap lookup so that it accepts K and it doesn't use m anymore
+  
   [(⊢↝/name (H (let x = (n : vτ_1) in (in-hole E (* x)))) (H (let x = (n : vτ_2) in (in-hole E (n_′ : vτ_′))) E-VarNT-Incr))
-   (where (ptr m _) vτ_1)
+   (where (ptr K _) vτ_1)
 ;   (where H (⊢heap-by-mode H m))
-   (where (n_′ : vτ_′) (⊢heap-lookup H n))
+   (where (n_′ : vτ_′) (⊢heap-lookup H K n))
    (where #f ,(zero? (term n_′)))
    (where vτ_2 (⊢nt-incr vτ_1))
    E-VarNT-Incr]
 
   [(⊢↝/name (H (let x = (n : vτ_1) in (in-hole E (* x)))) (H (let x = (n : vτ_1) in (in-hole E (* (n : vτ_1)))) E-VarNT-Sub))
-   (where (ptr m _) vτ_1)
+   (where (ptr K _) vτ_1)
 ;   (where H (⊢heap-by-mode H m))
-   (side-condition ,(let ([i (term (⊢heap-lookup H n))])
+   (side-condition ,(let ([i (term (⊢heap-lookup H K n))])
                       (or (not i)
                           (zero? (first i)))))
    E-VarNT-Sub]
@@ -363,7 +365,7 @@
   [(⊢↝/name (H (cast vτ (n : vτ_′))) (H (n : vτ) E-Cast))
    E-Cast]
 
-
+;; Could ths way of changing them messed things up, since it isn't evaluating the expression.
   [(⊢↝/name (H (* (n : vτ))) (H (n_1 : vτ_1) E-Deref))
    (where #t (⊢deref-ok? vτ))
    (where (ptr K _) vτ)
@@ -417,6 +419,7 @@
    (side-condition ,(not (and (<= (term l) 0) (< 0 (term h)))))
    X-AssignOOB]
 
+  ;; issue with these maybe?
   [(⊢↝/name (H (* (n : vτ))) (H Null X-DerefTainted))
    (where (ptr t _) vτ)
 ;   (where H (⊢heap-by-mode H t))
@@ -1101,7 +1104,7 @@
 ;            (term ((((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)) ((1 : int) (1 : int) (1 : int) (1 : int) (0 : int)))
 ;                   (let x = (2 : (ptr c (ntarray 0 4 int))) in (3 : int)))))
 ; 
-;; This test doesn't work with 1 heap, will need to be restructured
+;; This test doesn't work with 1 heap, will need to be restructured. The test is the issue, I need to fix the test.
   (test-->> (---> 'c)
             (term (((8 : int) (0 : int))
                    (let x = (1 : int) in
