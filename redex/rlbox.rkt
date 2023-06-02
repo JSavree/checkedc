@@ -328,7 +328,9 @@
    (where #f (⊢strlen n H))
    X-StrTainted] 
 
-  ;; no longer about error states I changed this to accept K, may need some looking at
+  ;; no longer about error states.
+  ;; I changed this to accept K, may need some looking at
+  ;; This is because we don't use m anymore.
   [(⊢↝/name (H (strlen (n : vτ))) (H (n_1 : int) E-Str))
    (where (ptr K (ntarray l h vτ_1)) vτ)
 ;   (where H (⊢heap-by-mode H m))
@@ -365,7 +367,8 @@
   [(⊢↝/name (H (cast vτ (n : vτ_′))) (H (n : vτ) E-Cast))
    E-Cast]
 
-;; Could ths way of changing them messed things up, since it isn't evaluating the expression.
+  ;; Could ths way of changing them messed things up, since it isn't evaluating the expression.
+  ;; This is in reference to replacing m with K, and making heap lookup accept K when calling it.
   [(⊢↝/name (H (* (n : vτ))) (H (n_1 : vτ_1) E-Deref))
    (where #t (⊢deref-ok? vτ))
    (where (ptr K _) vτ)
@@ -479,7 +482,7 @@
    (side-condition ,(not (and (<= (term l) 0) (<= 0 (term h)))))
    E-VarNTOOB])
 
-;; These need to be modified so that it does not take two heaps.
+;; These need to be modified so that it does not take two heaps. These don't actually need to be modified.
 (define-judgment-form CoreChkC+
   #:contract (⊢↝ (H e) (H r))
   #:mode     (⊢↝ I O)
