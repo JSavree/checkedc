@@ -8,6 +8,7 @@
 (define *D* (make-parameter (term ()))) ; struct table
 (define *H* (make-parameter (term ()))) ; global heap (for type system)
 (define *Fs* (make-parameter (term ()))) ; global function definition table
+(define *N* (make-parameter (term ()))) ; global number value
 (define *eFs* (make-parameter (term ()))) ; global erased function definition table
 
 (define *debug* (make-parameter (term #f))) ; debug flag
@@ -24,6 +25,27 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Syntax
 ;; TODO: modify the syntax to match the paper.
+
+;; heap max cardinality 2^n
+;; one heap, but two heaps created by splitting it using 2^(n - 1). Basically, split the one heap into a checked region and a tainted/unchecked region.
+;; c heap and u heap. Everytime when someone compiles, mallocs, in CoreC, the cardinality increases (for the region it belongs to).
+;; It needs to remember the cardinality of both regions.
+;; in our world, unchecked and tainted are basically the same, but tainted can be used outside of the unchecked region
+;; We don't need to worry about null-terminated pointers. So I don't need to worry about strlen.
+;; figure 13:
+;; left side is checked c code, right side is core c code
+;; helper map (gamma). Rho can go, since no null-terminated pointers.
+;; In NT-array.rkt ty>>>, those set of rules (line ~1600, typing) are both type rules and compilation rules, which compiles checked c to core c. This is written based on checked-c
+;; Now we need to split it into two (the checked and tainted/unchecked heaps).
+;; Copy the code into rlbox and make some modifictions (according to what we want, which is splitting into two heaps).
+;; First copy the code over, then modify it based on the rules in the paper (in figure 13)
+;; insert bounds check and insert null check. Since we have two heaps, we need to add one more check (similar to the bounds check), but for a fixed bounds (2^(n - 1))
+;; if it's in c, I check if where it's going into is within 0 to 2^(n - 1), and if it's u or t, I check if the region it's going into in the heap is from 2^(n - 1) to 2^n
+;; Do this for C-Assign and C-Def
+;; Malloc in checked c needs to compile to calloc in core-c
+;; just compile malloc to malloc, but I need to add an additional flag to see if it goes to c or u/t.
+;; Change the c's to k.
+;; move the needed code from ntarray to rlbox
 
 (define-language CoreChkC+
   (m ::= c u)
@@ -155,7 +177,7 @@
 
 
   ;; erased serious terms
- (eS ::= x (malloc-l ee) (malloc-r ee)
+ (eS ::= x (malloc-lr ee) ;; (malloc-l ee) (malloc-r ee) is this the right way to combine them? Or can I just combine these by swapping to the nt-array version?
       (ee + ee) (ee - ee)
       (star-l ee) (star-r ee)
       (star-l ee = ee) (star-r ee = ee)
@@ -165,8 +187,9 @@
       (let x = ee in ee)
       (strlen-l ee) (strlen-r ee)
       (free-l ee) (free-r ee)
-      (call-l ee ee ...)
-      (call-r ee ee ...)
+;      (call-l ee ee ...) then I need to combine these two
+;      (call-r ee ee ...)
+      (call-lr ee ee ...)
       ;; exceptions
       (enull) (ebounds))
 
@@ -174,8 +197,9 @@
 ;; TODO: star-l and star-r
   (eK ::= hole
       pop
-      (malloc-l [])
-      (malloc-r [])
+      (malloc []) ;; 
+                  ;; (malloc-l [])
+                  ;; (malloc-r [])
       ([] + ee) (i + [])
       (x = [])
       ([] - ee) (i - [])
@@ -194,7 +218,9 @@
       (call-l [] ee ...)
       (call-l ee ee ... [] ee ...)
       (call-r [] ee ...)
-      (call-r ee ee ... [] ee ...))
+      (call-r ee ee ... [] ee ...)
+      (call [] ee ...)
+      (call ee ee ... [] ee ...))
 
 
   (eΣ ::= ((x_!_0 i_0) ...))
@@ -391,6 +417,7 @@
    (where (n_0 : vτ_0) (⊢& vτ f_i n))
    E-Amper]
 
+  ;; I need to change these too to the if condition
   [(⊢↝/name (H (malloc m vω)) (H_′ (n_1 : (ptr c vω)) E-Malloc))
    (where (vτ_1 ...) (⊢types ,(*D*) vω))
 ;   (where H (⊢heap-by-mode H m))
@@ -1515,7 +1542,7 @@
         (where n_0 (⊢eheap-lookup eH n))
         eE-DerefRight)
 
-   ;; don't forget the underscore!!!!!
+   ;; don't forget the underscore!!!!! Is the eE stuff just for coreC?
    (--> (eH (in-hole eE (star-l n = n_0)))
         (eH_′ (in-hole eE n_0))
         (where eH_′ (⊢eheap-update eH c n n_0))
@@ -1532,6 +1559,9 @@
                                 (in-hole eE_′ i_1))))
         eE-Set)
 
+   ;; Merge the mallocs
+   ;; add an if condition to nt-array malloc
+   ;; These are for corec
    (--> (eH (in-hole eE (malloc-l n_1)))
         (eH_′ (in-hole eE n_2))
         (side-condition (positive? (term n_1)))
@@ -1650,6 +1680,7 @@
         (eH ((x_0 i_0) ... (x i_1) (x_2 i_2) ...) i_1 (eK ...))
         eE-Set)
 
+   ;; merge these mallocs together
    (--> (eH eΣ (malloc-l n_1) (eK ...))
         (eH_′ eΣ n_2 (eK ...))
         (side-condition (positive? (term n_1)))
@@ -1752,6 +1783,7 @@
         (eH eΣ eS ((strlen-r []) eK ...))
         eE-StrlenRight-Eval)
 
+   ;; merge these mallocs together
    (--> (eH eΣ i ((malloc-l []) eK ...))
         (eH eΣ (malloc-l i) (eK ...))
         eE-MallocLeft-Cont)
@@ -1905,3 +1937,570 @@
 
 
 (print "tests pass")
+
+
+;; CoreC copied from nt-array
+
+;; Should I switch m to K? probably?
+(define-judgment-form CoreChkC+
+  #:contract (⊢Fwf>>> Γ σ ρ m F eF)
+  #:mode     (⊢Fwf>>> I I I I I O)
+  [------------- WF-FUN-NIL
+   (⊢Fwf>>> Γ σ ρ m () ())]
+  [(⊢Fwf>>> Γ σ ρ m ((defun ((x_0 : τ_0) ... e_0) : τ_res0) ...) ((defun x_1 ... ee_1) ...))
+   (⊢fwf>>> Γ σ ρ m ((x : τ) ...) τ_res e ee)
+   ------------- WF-FUN-CONS
+   (⊢Fwf>>> Γ σ ρ m ((defun ((x : τ) ... e) : τ_res) (defun ((x_0 : τ_0) ... e_0) : τ_res0) ...)
+            ((defun x ... ee) (defun x_1 ... ee_1) ...))])
+
+(define-judgment-form CoreChkC+
+  #:contract (⊢fwf>>> Γ σ ρ m ((x : τ) ...) τ e ee)
+  #:mode     (⊢fwf>>> I I I I I             I I O)
+  [(⊢awf Γ ((x : τ) ...))
+   (where (cE ρ_′) (⊢extend-ρ′ ((x : τ) ...) ρ))
+   (⊢ty>>> ((x = none : τ) ... ) σ ρ_′ m e ee τ_res)
+   ------------- WF-FUN
+   (⊢fwf>>> Γ σ ρ m ((x : τ) ...) τ_res e (in-hole cE ee))])
+
+
+
+;; ************** go through these rules one by one, should I replace m with K? ***********;;
+;; Γ means environment
+;; K is pointer mode and m is code mode
+;; m_' means it falls under m, so change it to K, but the m in ⊢ty>>> Γ σ ρ m e ee τ doesn't need to be changed K
+;; in Redex the left thing is what you return, and the right side is the function
+;; I also need to define n. Put them where *D* or *Fs* are
+;; One big thing to do is make the new bounds check, which will just follow the form of the current bounds check.
+;; Then just change assign, and deref for adding the bounds check.
+;; Malloc will be more tricky since I need to figure out how splitting the heap works. Basically I need to figure out how to fix malloc to work with our heap '
+;; If pointer mode is c, then I do nothing, if t or u then I add 2^*N*-1 (add to n_1), so I just decide if I need to change n_1 or not.
+;; For the others, I just need to modify m_' or m's to K
+;; Go to e-malloc and eE-malloc
+;; For testing, just use the tests from nt-array
+
+;; 1. First, write the new bounds check
+;; or first fix the mallocs, and the mallocs should be similar to the ones in nt-array
+
+
+;; Typing
+(define-judgment-form CoreChkC+
+  #:contract (⊢ty>>> Γ σ ρ m e ee τ)
+  #:mode     (⊢ty>>> I I I I I O O)
+
+  [(⊢ty>>> Γ σ ρ m x x (ptr K (ntarray le he τ))) ;; changed m_' to K
+   (where τ_2 (⊢nt-incr (ptr K (ntarray le he τ))))
+   (⊢ty>>> (⊢extend-Γ (x = none : τ_2) Γ) σ ρ m e_1 ee_1 τ_1)
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 τ_3)
+   (check_mode m K) ;; I may need to modify check_mode. unexpected judgement form name?
+   (where τ_4 (⊢join-type Γ τ_1 τ_3))
+   ------------- T-IfNT
+   (⊢ty>>> Γ σ ρ m (if (* x) e_1 e_2)
+           (if (⊢widen-bounds-deref ρ x (ptr K (ntarray le he τ)) (* (if x x (enull))))
+               ee_1 ee_2) τ_4)]
+  ;; TODO: add join
+  [(⊢ty>>> Γ σ ρ m e ee τ)
+   (where #f (⊢nt-ptr-deref? Γ e))
+   (⊢ty>>> Γ σ ρ m e_1 ee_1 τ_1)
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 τ_2)
+   (where τ_3 (⊢join-type Γ τ_1 τ_2))
+   ------------- T-IfNonNT
+   (⊢ty>>> Γ σ ρ m (if e e_1 e_2) (if ee ee_1 ee_2) τ_3)]
+
+  [(where (_ τ) (⊢ty-env-lookup Γ x))
+   (⊢wf Γ τ)
+   ------------- T-Var
+   (⊢ty>>> Γ σ ρ m x x τ)]
+
+  ;; POST rules
+  ;; replace c with K?
+  [(where (_ ... (n : τ) _ ...) σ)
+   ------------- T-VConstC
+   (⊢ty>>> Γ σ ρ c (n : τ) n τ)]
+
+  ;; POST rules
+  [
+   ------------- T-VConstT
+   (⊢ty>>> Γ σ ρ t (n : τ) n τ)]
+
+  ;; NOTE: this rule is only for function elimination
+  ;; the well-formdness judgment handles the introduction
+  [(where (defun ((x : τ_2) ..._1 e) : τ) (⊢fun-lookup ,(*F*) n_1))
+   (where (τ_2′ ... τ_res) (⊢instantiate-fun-args τ (x τ_2 e_2) ...))
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 τ_2′′) ...
+   (⊢subtype τ_2′′  τ_2′) ...
+   ------------- T-VCall
+   (⊢ty>>> Γ σ ρ m (call n_1 e_2 ..._1) (call left_right n_1 ee_2 ...) τ_res)]
+
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 τ_1)
+   (where (cE ρ_′) (⊢extend-ρ x τ_1 ρ))
+   (⊢ty>>> (⊢extend-Γ (x = e_1 : τ_1) Γ) σ ρ_′ m e_2 ee_2 τ)
+   (where #f (⊢checked-strlen-var? Γ e_1))
+   ------------- T-LetNonStr
+   (⊢ty>>> Γ σ ρ m (let x = e_1 in e_2)
+           (let x = ee_1 in (in-hole cE ee_2)) (⊢instantiate-type x e_1 τ))]
+
+  [(where (maybe-e (ptr K (ntarray le he τ_1))) (⊢ty-env-lookup Γ x_2))
+   (⊢ty>>> (⊢extend-Γ (x_2 = maybe-e : (ptr K (ntarray le (x_1 + 0) τ_1))) ;; changed m to K
+                   (⊢extend-Γ (x_1 = (strlen x_2) : int) Γ))
+           σ ρ m e ee τ)
+   (where (_ x_high) (⊢bound-var-lookup ρ x_2))
+   (where eff ,(variable-not-in (term (x_high x_1 ee)) 'eff_strlen))
+   (where τ_2 (⊢instantiate-type x_1 (strlen x_2) τ))
+   ------------- T-LetStr
+   ;; no need to extend ρ here because x_1 is an integer, not an array pointer
+   (⊢ty>>> Γ σ ρ m (let x_1 = (strlen x_2) in e)
+           (let x_1 = (strlen (⊢insert-check #f ρ x_2 x_2 (ptr K (ntarray le he τ_1)))) ;; should the m_' be changed to K or K_'?
+                in (⊢insert-strlen-widening K x_1 x_high ee)) ;; changed this m_' to K
+        τ_2)]
+
+  [(⊢ty>>> Γ σ ρ m e ee (ptr K (ntarray le he τ))) ;; changed m_' to K
+   ------------- T-Str
+   (⊢ty>>> Γ σ ρ m (strlen e)
+        (⊢widen-bounds-strlen ρ e
+                              (ptr K (ntarray le he τ))
+                              (strlen (⊢insert-check #f ρ e ee (ptr K (ntarray le he τ)))))
+        int)]
+
+  [(where #t (⊢base? n τ))
+   ------------- T-Base
+   (⊢ty>>> Γ σ ρ m (n : τ) n τ)]
+
+  ;; TODO: add proper subtyping
+  [(where (ptr c vω) τ) ;; change c to K?
+   (where (τ_0 ..._1) (⊢types ,(*D*) vω))
+   (where #t (⊢heap-defined? ,(*H*) n vω))
+   (where ((n_1 : τ_1) ..._1 _ ...) (⊢heap-from ,(*H*) n vω))
+   (where ((n_′ : τ_′) ...) σ)
+   (⊢ty>>> Γ ((n : τ) (n_′ : τ_′) ...) ρ m (n_1 : τ_1) n_1 τ_0) ...
+   ------------- T-PtrC
+   (⊢ty>>> Γ σ ρ m (n : τ) n τ)]
+
+  [(⊢ty>>> Γ σ ρ m e ee (ptr K (struct T))) ;; changed m_' to K
+   (where ((τ_0 f_0) ... (τ_f f) _ ...) (⊢struct-lookup ,(*D*) T))
+   (where n ,(length (term (τ_0 ...))))
+   ------------- T-Amper
+   (⊢ty>>> Γ σ ρ m (& e → f) ((⊢insert-null-check′ ρ ee (ptr K (struct T)))  + n) (ptr K τ_f))] ;; changed m_' to K
+
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 int)
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 int)
+   ------------- T-BinopInt
+   (⊢ty>>> Γ σ ρ m (e_1 + e_2) (ee_1 + ee_2) int)]
+
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; changed m_' to K
+   (where ω_′ (⊢bounds-sub ω n))
+   (⊢ty>>> Γ σ ρ m (n : τ) n int)
+   ------------- T-BinopInd
+   (⊢ty>>> Γ σ ρ m (e_1 + (n : τ)) ((⊢insert-null-check′ ρ ee_1 (ptr K ω)) + n) (ptr K ω_′))] ;; changed m_' to K
+
+  [(⊢wf Γ (ptr K ω))
+   (where #t (⊢malloc-type-wf ω))
+   ------------- T-Malloc
+   (⊢ty>>> Γ σ ρ m (malloc K ω) (malloc K (⊢sizeof ω)) (ptr K ω))]
+
+  [ ....;;      list_sub (freeVars e) x... ->
+      ;;well_typed env Q u e t ->
+      ;;Forall (fun x => Env.MapsTo x t' env -> is_not_c t') x... ->
+      ;;is_not_c t ->
+   (⊢ty>>> Γ σ ρ u e ee τ)
+   ------------- T-Unchecked
+   (⊢ty>>> Γ σ ρ m (unchecked x... e) ee τ)]
+
+  [ ....;;      list_sub (freeVars e) x... ->
+
+      ;; well_typed env Q c e t ->
+      ;;Forall (fun x => Env.MapsTo x t' env -> is_not_c t') x... ->
+      ;;is_not_c t ->
+   (⊢ty>>> Γ σ ρ u e ee τ)
+   ------------- T-Checked
+   (⊢ty>>> Γ σ ρ m (checked x... e) ee τ)]
+
+  [(⊢ty>>> Γ σ ρ m e ee τ_′)
+   (where #t (⊢dyn-bound-cast-ok? τ_′ τ))
+   (where x_e ,(gensym 'x_e))
+   (where ee_′ (⊢insert-bounds-check-dyn ρ x_e e τ_′ τ))
+   ------------- T-DynCast
+   (⊢ty>>> Γ σ ρ m (dyn-bound-cast τ e) (let x_e = ee in ee_′) τ)]
+
+  [(⊢ty>>> Γ σ ρ m e ee τ_′)
+   (where #t (⊢cast-ok? m τ_′ τ))
+   ------------- T-Cast
+   (⊢ty>>> Γ σ ρ m (cast τ e) ee τ)]
+
+  [(⊢ty>>> Γ σ ρ m e ee (ptr K ω)) ;;  changed m_' to K
+   (where τ (⊢deref-type ω))
+   (where #t (⊢mode-ok? K m)) ;; changed m_' to K
+   ------------- T-Deref
+   (⊢ty>>> Γ σ ρ m (* e) (⊢widen-bounds-deref ρ e (ptr K ω) ;; get x_mode --> if x_mode is c then determine if left or right star
+                                           (* (⊢insert-check #f ρ e ee (ptr K ω)))) τ)] ;; changed m_' to K
+
+  ;; generalize T-Index?
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; changed m_' to K
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 int)
+   (where #t (⊢mode-ok? K m)) ;; changed m_' to K
+   (where #f (⊢is-literal? e_2))
+   (where #f (⊢is-array-or-nt-array? ω)) ; this used to be #f; I have no idea why
+   (where τ (⊢deref-type ω))
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e_1 ω))
+   (where (x_ee x_ee1 x_ee2)
+          ,(variables-not-in (term (ee_1 ee_2 ρ ω)) '(x x x)))
+   ------------- T-Index
+   (⊢ty>>> Γ σ ρ m
+           (* (e_1 + e_2))
+           (* (let x_ee1 = ee_1 in
+                   (let x_ee2 = ee_2 in
+                        (let x_ee = ((if x_ee1 x_ee1 (enull)) + x_ee2) in
+                             (if x_ee
+                                 (if (1 <=? (ee_lo - x_ee2))
+                                     (ebounds)
+                                     (if ((ee_hi - x_ee2) <=? (⊢array-upper-shift #f ω))
+                                         (ebounds)
+                                         x_ee))
+                                 (enull)))))) τ)]
+
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; changed m_' to K
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 τ)
+   (where τ (⊢deref-type ω))
+   (where (x_e1 x_e2) ,(variables-not-in (term (ee_1 ee_2 ω τ)) '(x_e1 x_e2)))
+   (where #t (⊢mode-ok? K m)) ;; changed m_' to K
+   ------------- T-Assign ;; is this the assign to change? But this assign already has a bounds check
+   ;; TODO: rewrite without helper functions
+   (⊢ty>>> Γ σ ρ m (* e_1 = e_2)
+           (let x_e1 = ee_1 in
+                (let x_e2 = ee_2 in
+                     (* (⊢insert-check #t ρ e_1 x_e1 (ptr K ω)) = x_e2))) τ)] ;; changed m_' to K. Also, what does insert-check do???
+
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; changed m_' to k
+   (⊢ty>>> Γ σ ρ m e_2 ee_2 int)
+   (⊢ty>>> Γ σ ρ m e_3 ee_3 τ)
+   (where #t (⊢mode-ok? K m)) ;; changed m_' to K
+   (where #f (⊢is-literal? e_2))
+   (where #f (⊢is-array-or-nt-array? ω))
+   (where τ (⊢deref-type ω))
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e_1 ω))
+   (where (x_ee1 x_ee2 x_ee3 x_ee),(variables-not-in (term (ee_1 ee_2 ρ ω)) '(x x x x)))
+   ------------- T-IndAssign
+   (⊢ty>>> Γ σ ρ m (* (e_1 + e_2) = e_3)
+           (* (let x_ee1 = ee_1 in
+                   (let x_ee2 = ee_2 in
+                        (let x_ee3 = ee_3 in
+                             (let x_ee = ((if x_ee1 x_ee1 (enull)) + x_ee2) in
+                                  (if x_ee
+                                      (if (1 <=? (ee_lo - x_ee2))
+                                          (ebounds)
+                                          (if ((ee_hi - x_ee2) <=? (⊢array-upper-shift #t ω))
+                                              (ebounds)
+                                              (* x_ee = ee_3)))
+                                      (enull))))))) τ)])
+
+
+
+
+;; Everything below here may or may not be needed
+
+;; typing rule that ignores the compiled expression
+;; we need this in order to run the old tests
+(define-judgment-form CoreChkC+
+  #:contract (⊢ty Γ σ m e τ)
+  #:mode     (⊢ty I I I I O)
+  [(⊢ty>>> Γ σ () m e _ τ)
+   -------------
+   (⊢ty Γ σ m e τ)])
+
+(define-judgment-form CoreChkC+
+  #:contract (⊢awf Γ ((x : τ) ...))
+  #:mode     (⊢awf I I)
+
+  [------------- WFA-NIL
+   (⊢awf Γ ())]
+
+  [(⊢wf Γ τ_0)
+   (⊢awf (⊢extend-Γ (x_0 = none : τ_0) Γ) ((x_1 : τ_1) ...))
+   ------------- WFA-CONS
+   (⊢awf Γ ((x_0 : τ_0) (x_1 : τ_1) ...))])
+
+(define-judgment-form CoreChkC+
+  #:contract (⊢bwf Γ le)
+  #:mode     (⊢bwf I I)
+
+  ;; well-formed bounds
+  [------------- WFB-INT
+   (⊢bwf Γ l)]
+
+  [(where (_ int) (⊢ty-env-lookup Γ x))
+   ------------- WFB-VAR
+   (⊢bwf Γ (x + l))])
+
+(define-judgment-form CoreChkC+
+  #:contract (⊢wf Γ τ)
+  #:mode     (⊢wf I I)
+
+  [------------- WF-INT
+   (⊢wf Γ int)]
+
+  [(⊢wf Γ τ)
+   (⊢bwf Γ le)
+   (⊢bwf Γ he)
+    ------------- WF-ARPTR
+   (⊢wf Γ (ptr m (array le he τ)))]
+
+  [(⊢wf Γ τ)
+   (⊢bwf Γ le)
+   (⊢bwf Γ he)
+    ------------- WF-NTARPTR
+   (⊢wf Γ (ptr m (ntarray le he τ)))]
+
+  [------------- WF-STRCT
+   (⊢wf Γ (ptr m (struct T)))]
+
+  [(⊢wf Γ τ)
+    ------------- WF-TPTR
+   (⊢wf Γ (ptr m τ))])
+
+;; do we need to widen bounds with unchecked pointers? probably yes
+
+;; the boolean flag indicates whether we are assigning or not
+
+;; I don't think we need the stuff after this, but I'm not sure. At the very least, the code above is neccessary
+
+(define-metafunction CoreChkC+
+  ⊢insert-strlen-widening : m x x ee -> ee
+  [(⊢insert-strlen-widening u _ _ ee) ee]
+  [(⊢insert-strlen-widening c x_new x_hi ee)
+   (let eff = (if (x_new <=? x_hi)
+                  0
+                  (x_hi = x_new))
+        in ee)
+   (where eff ,(variable-not-in (term (x_hi x_new ee)) 'eff_strlen))])
+
+;; changed m to K
+(define-metafunction CoreChkC+
+  ⊢insert-check : boolean ρ e ee (ptr K ω) -> ee
+  [(⊢insert-check boolean ρ e ee (ptr K ω))
+   (in-hole cE_1 ee_1)
+   (where x_e ,(variable-not-in (term (e ee ω)) 'x_e))
+   (where cE (let x_e = ee in hole))
+   (where (cE_0 ee_0) (⊢insert-bounds-check boolean ρ e cE x_e (ptr K ω)))
+   (where (cE_1 ee_1) (⊢insert-null-check cE_0 ee_0 x_e (ptr K ω)))])
+
+
+(define-metafunction CoreChkC+
+  ⊢insert-null-check′ : ρ ee (ptr m ω) -> ee
+  [(⊢insert-null-check′ ρ ee (ptr m ω))
+   (in-hole cE_0 ee_0)
+   (where x_e ,(variable-not-in (term (ρ ee ω)) 'x_e))
+   (where cE (let x_e = ee in hole))
+   (where (cE_0 ee_0) (⊢insert-null-check cE x_e x_e (ptr m ω)))])
+
+;; change m to K
+(define-metafunction CoreChkC+
+  ⊢insert-bounds-check-dyn : ρ x e (ptr K ω) (ptr K ω) -> ee
+  [(⊢insert-bounds-check-dyn ρ x_e e (ptr K ω) (ptr K (_ le he _)))
+   (let x_lo = ee_lo in     ; use macro/metafunction to simplify code?
+        (let x_hi = ee_hi in
+             (if (x_lo <=? le)
+                 (if (he <=? x_hi)
+                     x_e
+                     (ebounds))
+                 (ebounds))))
+   (where c K)
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω))
+   (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi)))
+   or
+   x_e])
+
+(define-metafunction CoreChkC+
+  ⊢insert-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee)
+  [(⊢insert-bounds-check boolean ρ e cE x_e (ptr K ω))
+   ((in-hole
+     cE
+     (let x_lo = ee_lo in     ; use macro/metafunction to simplify code?
+          (let x_hi = ee_hi in
+               hole)))
+    (if (1 <=? x_lo)
+        (ebounds)
+        (if (x_hi <=? (⊢array-upper-shift boolean ω))
+            (ebounds)
+            x_e)))
+   (where c K)
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω))
+   (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi)))
+   or
+   (cE x_e)])
+
+
+;; Make the new bounds check we need right here.
+(define-metafunction CoreChkC+
+  ⊢insert-constant-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee)
+  [(⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr K ω))
+   ((in-hole
+     cE
+     (let x_lo = (expt 2 (*N*-1)) in     ; use macro/metafunction to simplify code?
+          (let x_hi = (expt 2 *N*) in
+               hole)))
+    (if (1 <=? x_lo) ;; these if statements just define exceptions. so if it passes these exceptions, it's the correct bounds? Otherwise, where should I write my if conditions
+        (ebounds)    ;; I need to write my if conditions such that if they are below x_lo, they are in the first heap, and if above and below 2^n, they are in the 2nd heap
+        (if (x_hi <=? (⊢array-upper-shift boolean ω)) ;; or do I have the wrong interpretation of x_lo and x_hi? Because I need to understand which ones are the input bounds.
+            (ebounds)
+            x_e)))
+   (where c K)
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω)) ;; we don't need this? Or is ee_lo and ee_hi the input bounds? I'm confused right now about this
+   (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi))) 
+   or
+   (cE x_e)]) ;; or (cE x_e) just returns the results of (cE x_e) doesn't it? Or is it like, it returns the above or below?
+
+
+(define-metafunction CoreChkC+
+  ⊢insert-null-check : cE ee x (ptr m ω) -> (cE ee)
+  [(⊢insert-null-check cE ee x_e (ptr m ω))
+   (cE
+    (if x_e
+        ee
+        (enull)))
+   (where c m)
+   or
+   (cE x_e)])
+
+(define-metafunction CoreChkC+
+  ⊢array-upper-shift : boolean ω -> -1 or 0
+  [(⊢array-upper-shift #f (ntarray _ _ _)) -1]
+  [(⊢array-upper-shift _ _) 0])
+
+
+(define-metafunction CoreChkC+
+  ⊢get-accurate-bounds : ρ e ω -> (ee ee) or #f
+  [(⊢get-accurate-bounds ρ e ω)
+   (x_lo x_hi)
+   (where x e)
+   (where (x_lo x_hi) (⊢bound-var-lookup ρ x))
+   or
+   (⊢array-bounds ω)])
+
+
+(define-metafunction CoreChkC+
+  ⊢array-bounds : ω -> (ee ee) or #f
+  [(⊢array-bounds (ntarray le he _))
+   (le he)]
+  [(⊢array-bounds (array le he _))
+   (le he)]
+  [(⊢array-bounds _)
+   #f])
+
+
+(define-metafunction CoreChkC+
+  ⊢bound-var-lookup : ρ x -> (x x) or #f
+  [(⊢bound-var-lookup ((x (x_lo x_hi)) _ ...) x)
+   (x_lo x_hi)]
+  [(⊢bound-var-lookup (_ (x_′ (x_lo′ x_hi′)) ...) x)
+   (⊢bound-var-lookup ((x_′ (x_lo′ x_hi′)) ...) x)]
+  [(⊢bound-var-lookup _ _) #f])
+
+
+(define-metafunction CoreChkC+
+  ⊢widen-bounds-deref : ρ e τ ee -> ee
+  [(⊢widen-bounds-deref ρ e τ ee)
+   (let x_derefed = ee in
+        (if x_derefed
+            (if x_hi
+                x_derefed
+                (let eff = (x_hi = 1) in x_derefed))
+            x_derefed))
+   (where (ptr c (ntarray _ _ _)) τ)
+   (where #t (⊢nt-ptr? τ))
+   (where x e)                          ; ee represents the compiled version of (* e_0 ...)
+   (where (_ x_hi) (⊢bound-var-lookup ρ x)) ; e represents e_0 only
+   (where (eff x_derefed) ,(variables-not-in (term (τ e ee ρ)) '(eff_ifnt x_derefed)))
+   or
+   ee])
+
+
+(define-metafunction CoreChkC+
+  ⊢widen-bounds-strlen : ρ e τ ee -> ee
+  [(⊢widen-bounds-strlen ρ e τ ee)
+   (let x_ee = ee in
+        (if (x_ee <=? x_hi)
+            x_ee
+            (x_hi = x_ee)))
+   (where #t (⊢nt-ptr? τ))
+   (where x e)                          ; ee represents the compiled version of (strlen e_0 ...)
+   (where (_ x_hi) (⊢bound-var-lookup ρ x)) ; e represents e_0 only
+   (where (x_ee) ,(variables-not-in (term (τ e ee ρ)) '(x_ee)))
+   or
+   ee])
+
+;; already defined
+;(define-metafunction CoreChkC+
+;  ⊢sizeof : ω -> ee or #f
+;  [(⊢sizeof τ) 1]
+;  [(⊢sizeof (struct T)) ,(length (term (⊢struct-lookup ,(*D*) T)))]
+;  [(⊢sizeof (array 0 he _)) he]
+;  [(⊢sizeof (ntarray 0 (x + i) _)) (x + ,(+ 1 (term i)))]
+;  [(⊢sizeof (ntarray 0 i _)) ,(+ 1 (term i))]
+;  [(⊢sizeof _) ,(raise 'impossible)])
+
+
+
+(define-metafunction CoreChkC+
+  ⊢dyn-bound-cast-ok? : τ τ -> #t or #f
+  [(⊢dyn-bound-cast-ok? (ptr c (ntarray _ _ τ)) (ptr c (ntarray _ _ τ))) #t]
+  [(⊢dyn-bound-cast-ok? (ptr c (array _ _ τ)) (ptr c (array _ _ τ))) #t]
+  [(⊢dyn-bound-cast-ok? _ _) #f])
+
+(define-metafunction CoreChkC+
+  ⊢nt-ptr-deref? : Γ e -> #t or #f
+  [(⊢nt-ptr-deref? Γ (* x))
+   #t
+   (where (_ (ptr c (ntarray _ _ _))) (⊢ty-env-lookup Γ x))]
+  [(⊢nt-ptr-deref? _ _) #f])
+
+
+(define-metafunction CoreChkC+
+  ⊢ty-env-lookup : Γ x -> (maybe-e τ) or #f
+  [(⊢ty-env-lookup () _) #f]
+  [(⊢ty-env-lookup ((x = maybe-e : τ) _ ...) x) (maybe-e τ)]
+  [(⊢ty-env-lookup (_ (x_′ = maybe-e_′ : τ_′) ...) x)
+   (⊢ty-env-lookup ((x_′ = maybe-e_′ : τ_′) ...) x)])
+
+;; already defined
+;(define-metafunction CoreChkC+
+;  ⊢base? : n τ -> #t or #f
+;  [(⊢base? n int) #t]
+;  [(⊢base? n (ptr u ω)) #t]
+;  [(⊢base? 0 τ) #t]
+;  [(⊢base? n (ptr c (array 0 0 τ_′))) #t]
+;  [(⊢base? n (ptr c (ntarray 0 0 τ_′))) #t]
+;  [(⊢base? _ _) #f])
+
+(define-metafunction CoreChkC+
+  ⊢cast-ok? : m τ τ -> #t or #f
+  [(⊢cast-ok? u _ τ) #t]
+  [(⊢cast-ok? c _ int) #t]
+  [(⊢cast-ok? c _ (ptr u ω)) #t]
+  [(⊢cast-ok? c τ_′ τ) #t
+   (judgment-holds (⊢subtype τ_′ τ))]
+  [(⊢cast-ok? _ _ _) #f])
+
+;; already defined
+;; deref-type under the context of operational semantics
+;(define-metafunction CoreChkC+
+;  ⊢deref-type-dyn : D τ -> τ
+;  [(⊢deref-type-dyn _ int) int]
+;  [(⊢deref-type-dyn _ (ptr m τ)) τ]
+;  [(⊢deref-type-dyn _ (ptr m (ntarray _ _ τ))) τ]
+;  [(⊢deref-type-dyn _ (ptr m (array _ _ τ))) τ]
+;  [(⊢deref-type-dyn D (ptr m (struct T)))
+;   τ_1
+;   (where ((τ_1 _) _ ...) (⊢struct-lookup D T))])
+
+;; already defined
+;(define-metafunction CoreChkC+
+;  ⊢deref-type : ω -> τ
+;  [(⊢deref-type τ) τ]
+;  [(⊢deref-type (array le he τ)) τ]
+;  [(⊢deref-type (ntarray le he τ)) τ])
+
+
+(define-metafunction CoreChkC+
+  ⊢mode-ok? : m m -> #t or #f
+  [(⊢mode-ok? u u) #t]
+  [(⊢mode-ok? c _) #t]
+  [(⊢mode-ok? _ _) #f])
