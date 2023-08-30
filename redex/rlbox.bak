@@ -80,7 +80,11 @@
      ;;()
   
   ;; erased expressions
+<<<<<<< Updated upstream
   (ee ::=  i eS)
+=======
+  (ee ::=  i eS) ;; i is an integer, and eS is another erased expression
+>>>>>>> Stashed changes
 
   ;; NEW:
   (le he ::= l ls)
@@ -197,7 +201,11 @@
 ;; TODO: star-l and star-r
   (eK ::= hole
       pop
+<<<<<<< Updated upstream
       (malloc []) ;; 
+=======
+      (malloc-lr []) ;; 
+>>>>>>> Stashed changes
                   ;; (malloc-l [])
                   ;; (malloc-r [])
       ([] + ee) (i + [])
@@ -417,6 +425,10 @@
    (where (n_0 : vτ_0) (⊢& vτ f_i n))
    E-Amper]
 
+<<<<<<< Updated upstream
+=======
+  ;; I think these two mallocs are fine. No need to edit
+>>>>>>> Stashed changes
   ;; I need to change these too to the if condition
   [(⊢↝/name (H (malloc m vω)) (H_′ (n_1 : (ptr c vω)) E-Malloc))
    (where (vτ_1 ...) (⊢types ,(*D*) vω))
@@ -1511,6 +1523,77 @@
 ;            (term ((((8 : int) (0 : int)) ()) (2 : int)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+<<<<<<< Updated upstream
+=======
+
+;; Subtype
+
+(define-judgment-form CoreChkC+
+  #:contract (⊢subtype τ τ)
+  #:mode (⊢subtype I I)
+
+  [
+   -------------- Sub-Nt
+   (⊢subtype (ptr c (nt-array l h τ)) (ptr c (array l h τ)))]
+
+  [
+   ------------- Sub-Refl
+   (⊢subtype τ τ)]
+
+  [
+   ------------- Sub-Ptr
+   (⊢subtype (ptr c τ) (ptr c (array 0 1 τ)))]
+
+   [
+   ------------- Sub-Arr
+   (⊢subtype (ptr c (array 0 1 τ)) (ptr c τ))]
+
+  [
+   (where #t (⊢bound-le? le le_1))
+   (where #t (⊢bound-le? he_1 he))
+   ------------- Sub-SubsumeNT
+   (⊢subtype (ptr c (ntarray le he τ)) (ptr c (ntarray le_1 he_1 τ)))]
+
+  [
+   (where #t (⊢bound-le? le le_1))
+   (where #t (⊢bound-le? he_1 he))
+   ------------- Sub-Subsume
+   (⊢subtype (ptr c (array le he τ)) (ptr c (array le_1 he_1 τ)))]
+
+  ;; Again to match Coq developement, might remove
+  ;; something wrong syntactically here
+  [(where ((τ_f f) _ ...) (⊢struct-lookup ,(*D*) T))
+   (⊢subtype τ_f τ)
+   ------------- Sub-struct-array-field
+   (⊢subtype (ptr c (struct T)) (ptr c τ))])
+
+;;tests for subtyping
+(module+ test
+  (parameterize ((*D* (term ((foo ((int x) (int y))))))))
+;; tests for subtyping
+  (test-judgment-holds
+   (⊢subtype int int))
+  (test-judgment-holds
+   (⊢subtype (ptr c (ntarray 0 6 int)) (ptr c (ntarray 0 6 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c (ntarray 0 6 int)) (ptr c (ntarray 0 2 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c (array 0 6 int)) (ptr c (array 0 2 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c (array 0 6 int)) (ptr c (array 0 0 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c (array -1 6 int)) (ptr c (array 0 0 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c (ntarray -1 6 int)) (ptr c (ntarray 0 0 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c int) (ptr c (array 0 1 int))))
+  (test-judgment-holds
+   (⊢subtype (ptr c (array 0 1 int)) (ptr c int)))
+  (test-judgment-holds
+   (⊢subtype (ptr c (struct foo)) (ptr c int))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+>>>>>>> Stashed changes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Operational Semantics
 
@@ -1542,7 +1625,11 @@
         (where n_0 (⊢eheap-lookup eH n))
         eE-DerefRight)
 
+<<<<<<< Updated upstream
    ;; don't forget the underscore!!!!!
+=======
+   ;; don't forget the underscore!!!!! Is the eE stuff just for coreC?
+>>>>>>> Stashed changes
    (--> (eH (in-hole eE (star-l n = n_0)))
         (eH_′ (in-hole eE n_0))
         (where eH_′ (⊢eheap-update eH c n n_0))
@@ -1580,6 +1667,19 @@
         (where n_2 ,(add1 (length (term eH))))
         eE-MallocRight)
 
+<<<<<<< Updated upstream
+=======
+   ;; is this good?
+   (--> (eH (in-hole eE (malloc-lr n_1)))
+        (eH_′ (in-hole eE n_2))
+        (side-condition (positive? (term n_1)))
+        (where eH (⊢eheap-by-mode eH u))
+        (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
+        (where eH_′ (⊢update-eheap-by-mode eH eH_′ u))
+        (where n_2 ,(add1 (length (term eH))))
+        eE-Malloc)
+
+>>>>>>> Stashed changes
    (--> (eH (in-hole eE (malloc-l i_1)))
         (eH (in-hole eE 0))
         (side-condition (not (positive? (term i_1))))
@@ -1590,6 +1690,15 @@
         (side-condition (not (positive? (term i_1))))
         eE-MallocRightZero)
 
+<<<<<<< Updated upstream
+=======
+   ;; is this good?
+   (--> (eH (in-hole eE (malloc-lr i_1))) ;; this line is the expression on the left hand side of the arrow
+        (eH (in-hole eE 0)) ;; this is the expression on the right hand side of the arrow. Basically, evaluating the above, should give you this.
+        (side-condition (not (positive? (term i_1))))
+        eE-MallocZero)
+
+>>>>>>> Stashed changes
    (--> (eH (in-hole eE (let x = i_0 in i_1)))
         (eH (in-hole eE i_1))
         eE-Let)
@@ -1699,6 +1808,19 @@
         (where n_2 ,(add1 (length (term eH))))
         eE-MallocRight)
 
+<<<<<<< Updated upstream
+=======
+   ;; is this good?
+   (--> (eH eΣ (malloc-lr n_1) (eK ...))
+        (eH_′ eΣ n_2 (eK ...))
+        (side-condition (positive? (term n_1)))
+        (where eH (⊢eheap-by-mode eH u))
+        (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
+        (where eH_′ (⊢update-eheap-by-mode eH eH_′ u))
+        (where n_2 ,(add1 (length (term eH))))
+        eE-Malloc)
+   
+>>>>>>> Stashed changes
    (--> (eH eΣ (malloc-l i_1) (eK ...))
         (eH eΣ 0 (eK ...))
         (side-condition (not (positive? (term i_1))))
@@ -1709,6 +1831,14 @@
         (side-condition (not (positive? (term i_1))))
         eE-MallocRightZero)
 
+<<<<<<< Updated upstream
+=======
+   ;; is this good?
+      (--> (eH eΣ (malloc-lr i_1) (eK ...))
+        (eH eΣ 0 (eK ...))
+        (side-condition (not (positive? (term i_1))))
+        eE-MallocZero)
+>>>>>>> Stashed changes
 
    (--> (eH ((x i) ...) (let x_0 = i_0 in ee) (eK ...))
         (eH ((x_0 i_0) (x i) ...) ee (pop eK ...))
@@ -1792,6 +1922,14 @@
         (eH eΣ (malloc-r i) (eK ...))
         eE-MallocRight-Cont)
 
+<<<<<<< Updated upstream
+=======
+   ;; is this good?
+   (--> (eH eΣ i ((malloc-lr []) eK ...))
+        (eH eΣ (malloc-lr i) (eK ...))
+        eE-Malloc-Cont)
+
+>>>>>>> Stashed changes
    (--> (eH eΣ (malloc-l eS) (eK ...))
         (eH eΣ eS ((malloc-l []) eK ...))
         eE-MallocLeft-Eval)
@@ -1800,6 +1938,14 @@
         (eH eΣ eS ((malloc-r []) eK ...))
         eE-MallocRight-Eval)
 
+<<<<<<< Updated upstream
+=======
+   ;; is this good?
+   (--> (eH eΣ (malloc-lr eS) (eK ...))
+        (eH eΣ eS ((malloc-lr []) eK ...))
+        eE-Malloc-Eval)
+   
+>>>>>>> Stashed changes
 
    (--> (eH eΣ (let x = eS in ee) (eK ...))
         (eH eΣ eS ((let x = [] in ee) eK ...))
@@ -1981,6 +2127,11 @@
 ;; 1. First, write the new bounds check
 ;; or first fix the mallocs, and the mallocs should be similar to the ones in nt-array
 
+<<<<<<< Updated upstream
+=======
+;; Look at the original nt-array file in the master branch, and possibly copy that and modify it instead.
+
+>>>>>>> Stashed changes
 
 ;; Typing
 (define-judgment-form CoreChkC+
@@ -1991,7 +2142,11 @@
    (where τ_2 (⊢nt-incr (ptr K (ntarray le he τ))))
    (⊢ty>>> (⊢extend-Γ (x = none : τ_2) Γ) σ ρ m e_1 ee_1 τ_1)
    (⊢ty>>> Γ σ ρ m e_2 ee_2 τ_3)
+<<<<<<< Updated upstream
    (check_mode m K) ;; I may need to modify check_mode. unexpected judgement form name?
+=======
+   (where #t (⊢check-mode m K)) ;; I may need to modify check_mode. unexpected judgement form name?
+>>>>>>> Stashed changes
    (where τ_4 (⊢join-type Γ τ_1 τ_3))
    ------------- T-IfNT
    (⊢ty>>> Γ σ ρ m (if (* x) e_1 e_2)
@@ -2027,9 +2182,15 @@
   [(where (defun ((x : τ_2) ..._1 e) : τ) (⊢fun-lookup ,(*F*) n_1))
    (where (τ_2′ ... τ_res) (⊢instantiate-fun-args τ (x τ_2 e_2) ...))
    (⊢ty>>> Γ σ ρ m e_2 ee_2 τ_2′′) ...
+<<<<<<< Updated upstream
    (⊢subtype τ_2′′  τ_2′) ...
    ------------- T-VCall
    (⊢ty>>> Γ σ ρ m (call n_1 e_2 ..._1) (call left_right n_1 ee_2 ...) τ_res)]
+=======
+   (⊢subtype τ_2′′  τ_2′) 
+   ------------- T-VCall
+   (⊢ty>>> Γ σ ρ m (call n_1 e_2 ..._1) (call n_1 ee_2 ...) τ_res)]
+>>>>>>> Stashed changes
 
   [(⊢ty>>> Γ σ ρ m e_1 ee_1 τ_1)
    (where (cE ρ_′) (⊢extend-ρ x τ_1 ρ))
@@ -2118,12 +2279,20 @@
    (where #t (⊢dyn-bound-cast-ok? τ_′ τ))
    (where x_e ,(gensym 'x_e))
    (where ee_′ (⊢insert-bounds-check-dyn ρ x_e e τ_′ τ))
+<<<<<<< Updated upstream
    ------------- T-DynCast
+=======
+   ------------- T-DynCast ;; below this is the original expression. Above are the conditions for below.
+>>>>>>> Stashed changes
    (⊢ty>>> Γ σ ρ m (dyn-bound-cast τ e) (let x_e = ee in ee_′) τ)]
 
   [(⊢ty>>> Γ σ ρ m e ee τ_′)
    (where #t (⊢cast-ok? m τ_′ τ))
+<<<<<<< Updated upstream
    ------------- T-Cast
+=======
+   ------------- T-Cast ;; so above the line are the conditions for checking if the types are correct
+>>>>>>> Stashed changes
    (⊢ty>>> Γ σ ρ m (cast τ e) ee τ)]
 
   [(⊢ty>>> Γ σ ρ m e ee (ptr K ω)) ;;  changed m_' to K
@@ -2157,17 +2326,29 @@
                                          x_ee))
                                  (enull)))))) τ)]
 
+<<<<<<< Updated upstream
+=======
+  ;; these rules can return errors as something they evaluate to.
+>>>>>>> Stashed changes
   [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; changed m_' to K
    (⊢ty>>> Γ σ ρ m e_2 ee_2 τ)
    (where τ (⊢deref-type ω))
    (where (x_e1 x_e2) ,(variables-not-in (term (ee_1 ee_2 ω τ)) '(x_e1 x_e2)))
    (where #t (⊢mode-ok? K m)) ;; changed m_' to K
+<<<<<<< Updated upstream
    ------------- T-Assign ;; is this the assign to change?
+=======
+   ------------- T-Assign ;; is this the assign to change? But this assign already has a bounds check
+>>>>>>> Stashed changes
    ;; TODO: rewrite without helper functions
    (⊢ty>>> Γ σ ρ m (* e_1 = e_2)
            (let x_e1 = ee_1 in
                 (let x_e2 = ee_2 in
+<<<<<<< Updated upstream
                      (* (⊢insert-check #t ρ e_1 x_e1 (ptr K ω)) = x_e2))) τ)] ;; changed m_' to K. Also, what does insert-check do???
+=======
+                     (* (⊢insert-check #t ρ e_1 x_e1 (ptr K ω)) = x_e2))) τ)] ;; changed m_' to K. Also, what does insert-check do??? ebounds evaluates to Bounds
+>>>>>>> Stashed changes
 
   [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; changed m_' to k
    (⊢ty>>> Γ σ ρ m e_2 ee_2 int)
@@ -2308,8 +2489,15 @@
    or
    x_e])
 
+<<<<<<< Updated upstream
 (define-metafunction CoreChkC+
   ⊢insert-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee)
+=======
+;; relative bounds checking, where the ptr is at 0. x_e is a pointer, so it's just an integer? no.
+;; 
+(define-metafunction CoreChkC+
+  ⊢insert-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee) 
+>>>>>>> Stashed changes
   [(⊢insert-bounds-check boolean ρ e cE x_e (ptr K ω))
    ((in-hole
      cE
@@ -2321,14 +2509,22 @@
         (if (x_hi <=? (⊢array-upper-shift boolean ω))
             (ebounds)
             x_e)))
+<<<<<<< Updated upstream
    (where c K)
    (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω))
    (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi)))
    or
+=======
+   (where c K) ;; these assign values to be used above. This one specifically says the value of K must be c.
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω))
+   (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi))) ;; where is a helper function that assigns stuff
+   or ;; line 56-68, it's the expression before or, and 
+>>>>>>> Stashed changes
    (cE x_e)])
 
 
 ;; Make the new bounds check we need right here.
+<<<<<<< Updated upstream
 (define-metafunction CoreChkC+
   ⊢insert-constant-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee)
   [(⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr K ω))
@@ -2347,6 +2543,44 @@
    (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi))) 
    or
    (cE x_e)]) ;; or (cE x_e) just returns the results of (cE x_e) doesn't it? Or is it like, it returns the above or below?
+=======
+;; 
+(define-metafunction CoreChkC+
+  ⊢insert-constant-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee)
+  [(⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr c ω)) ;; checked half
+   ((in-hole
+     cE
+     (let x_lo = ee_lo in     ; use macro/metafunction to simplify code?
+          (let x_hi = ee_hi in
+               hole))) ;; this returns cE. This part is just getting the cE, it's not doing the check.
+    ;; this is where the checking happens, and is where I should put in the 2^n etc.
+    (if (x_e <=? -1) ;; these if statements just define exceptions. so if it passes these exceptions, it's the correct bounds? Otherwise, where should I write my if conditions
+        (ebounds)    ;; I need to write my if conditions such that if they are below x_lo, they are in the first heap, and if above and below 2^n, they are in the 2nd heap
+        (if (((expt 2 (*N*-1)) + 1) <=? x_e) ;; or do I have the wrong interpretation of x_lo and x_hi? Because I need to understand which ones are the input bounds.
+            (ebounds)
+            x_e))) ;; and this part returns ee
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω)) ;; we don't need this? Or is ee_lo and ee_hi the input bounds? I'm confused right now about this
+   (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi))) 
+   or
+   (cE x_e)] ;; or (cE x_e) just returns the results of (cE x_e) doesn't it? Or is it like, it returns the above or below?
+  [(⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr K ω)) ;; unchecked/tainted half.
+   ((in-hole
+     cE
+     (let x_lo = ee_lo in     ; use macro/metafunction to simplify code?
+          (let x_hi = ee_hi in
+               hole))) ;; this returns cE. This part is just getting the cE, it's not doing the check.
+    ;; this is where the checking happens, and is where I should put in the 2^n etc. So I should modify these checks.
+    (if (x_e <=? (expt 2 (*N*-1))) ;; these if statements just define exceptions. so if it passes these exceptions, it's the correct bounds? Otherwise, where should I write my if conditions
+        (ebounds)    ;; I need to write my if conditions such that if they are below x_lo, they are in the first heap, and if above and below 2^n, they are in the 2nd heap
+        (if ((expt 2 *N*) <=? x_e) ;; Since I have fixed bounds, I don't need array upper shift anymore.
+            (ebounds)
+            x_e))) ;; and this part returns ee
+   (where (ee_lo ee_hi) (⊢get-accurate-bounds ρ e ω)) ;; we don't need this? Or is ee_lo and ee_hi the input bounds? I'm confused right now about this
+   (where (x_lo x_hi) ,(variables-not-in (term (ee_lo ee_hi x ω)) '(x_lo x_hi)))
+   (side-condition (or (eq? (term K) 'u) (eq? (term K) 't)))
+   or
+   (cE x_e)]) 
+>>>>>>> Stashed changes
 
 
 (define-metafunction CoreChkC+
