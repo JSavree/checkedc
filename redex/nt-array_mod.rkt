@@ -1870,7 +1870,8 @@
    (⊢ty>>> Γ σ ρ m (* e_1 = e_2)
            (let x_e1 = ee_1 in
                 (let x_e2 = ee_2 in
-                     (* (⊢insert-check #t ρ e_1 x_e1 (ptr K ω)) = x_e2))) τ)]
+                     (* (⊢insert-check #t ρ e_1 x_e1 (ptr K ω)) = x_e2))) τ)] ;; should I add the new check ehre, or put it into insert check? For now, I'll just add the new check here.
+  ;; How do I test things?
 
   [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr m_′ ω))
    (⊢ty>>> Γ σ ρ m e_2 ee_2 int)
@@ -1980,7 +1981,8 @@
    (where x_e ,(variable-not-in (term (e ee ω)) 'x_e))
    (where cE (let x_e = ee in hole))
    (where (cE_0 ee_0) (⊢insert-bounds-check boolean ρ e cE x_e (ptr m ω)))
-   (where (cE_1 ee_1) (⊢insert-null-check cE_0 ee_0 x_e (ptr m ω)))])
+   (where (cE_1 ee_1) (⊢insert-null-check cE_0 ee_0 x_e (ptr m ω)))
+   (where (cE_2 ee_2) (⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr m ω)))]) ;; is this the right way to do it? Or should I do it differently.
 
 
 (define-metafunction CoreChkC+
