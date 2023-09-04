@@ -89,7 +89,7 @@
   (E ::= hole (let x = E in e) (let x = (n : vτ) in E) (E + e) ((n : vτ) + E)
      (& E → f) (dyn-bound-cast Eτ e) (dyn-bound-cast vτ E) (cast Eτ e) (cast vτ E) (* E) (* E = e) (* (n : vτ) = E) ;; (unchecked E) Do I need this still?
      ;; NEW:
-     (to m E)
+     (to m E) ;; this remains m
      (if E e e)
      (strlen E)
      (malloc K Eω)
@@ -662,33 +662,34 @@
   [(⊢↝/name (H (unchecked (n : vτ))) (H (n : vτ) S-Unchecked))
    S-Unchecked]
 
+  ;; Should I change c to K?
   ;; array and nt-array combined in a single rule
   [(⊢↝/name (H (* (n : vτ))) (H Bounds S-DefBound))
    (side-condition ,(not (zero? (term n))))
-   (where (ptr c (array l h vτ_1)) vτ)
+   (where (ptr K (array l h vτ_1)) vτ)
    (side-condition ,(not (and (<= (term l) 0) (< 0 (term h)))))
    S-DefBound]
 
   [(⊢↝/name (H (* (n : vτ) = (n_1 : vτ_1))) (H Bounds S-AssignBound))
    (side-condition ,(not (zero? (term n))))
-   (where (ptr c (array l h vτ_1)) vτ)
+   (where (ptr K (array l h vτ_1)) vτ)
    (side-condition ,(not (and (<= (term l) 0) (< 0 (term h)))))
    S-AssignBound]
 
   [(⊢↝/name (H (* (0 : vτ))) (H Null S-DefNull))
-   (where (ptr c vω) vτ)
+   (where (ptr K vω) vτ)
    S-DefNull]
 
   [(⊢↝/name (H (* (0 : vτ) = (n_1 : vτ_′))) (H Null S-AssignNull))
-   (where (ptr c vω) vτ)
+   (where (ptr K vω) vτ)
    S-AssignNull]
 
   [(⊢↝/name (H (& (0 : vτ) → f)) (H Null S-StructNull))
-   (where (ptr c (struct T)) vτ)
+   (where (ptr K (struct T)) vτ)
    S-StructNull]
 
   [(⊢↝/name (H ((0 : vτ) + (n : vτ_′))) (H Null S-AddNull))
-   (where (ptr c (array l h vτ_1)) vτ)
+   (where (ptr K (array l h vτ_1)) vτ)
    S-AddNull]
 
   [(⊢↝/name (H (if (n : vτ) e_1 e_2)) (H e_1 S-IfT))
@@ -698,8 +699,8 @@
    (side-condition ,(= (term 0) (term n)))
    S-IfF]
 
-  [(⊢↝/name (H (let x = (n : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
-            (H (let x = (n : (ptr c (ntarray l h_′ vτ))) in (in-hole E (n_1 : int))) S-StrWiden))
+  [(⊢↝/name (H (let x = (n : (ptr K (ntarray l h vτ))) in (in-hole E (strlen x))))
+            (H (let x = (n : (ptr K (ntarray l h_′ vτ))) in (in-hole E (n_1 : int))) S-StrWiden))
    (where n_1 (⊢strlen n H))
    (where h_′ ,(max (term h) (term n_1)))
    (side-condition ,(not (zero? (term n))))
@@ -707,11 +708,11 @@
    S-StrWiden]
 
   ;; extra rules for prioritizing if (* x) over plain if
-  [(⊢↝/name (H (let x = (0 : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
+  [(⊢↝/name (H (let x = (0 : (ptr K (ntarray l h vτ))) in (in-hole E (strlen x))))
        (H Null S-VarNTNull))
    S-VarNTNull]
 
-  [(⊢↝/name (H (let x = (n : (ptr c (ntarray l h vτ))) in (in-hole E (strlen x))))
+  [(⊢↝/name (H (let x = (n : (ptr K (ntarray l h vτ))) in (in-hole E (strlen x))))
             (H Bounds S-VarNTBound))
    (side-condition ,(not (zero? (term n))))
    (side-condition ,(not (and (<= (term l) 0) (<= 0 (term h)))))
@@ -745,16 +746,16 @@
 
 (define-metafunction CoreChkC+
   ⊢join-type : Γ τ τ -> τ or #f
-  [(⊢join-type Γ (ptr c (ntarray le_0 he_0 τ)) (ptr c (ntarray le_1 he_1 τ)))
-   (ptr c (ntarray le_2 he_2 τ))
+  [(⊢join-type Γ (ptr K (ntarray le_0 he_0 τ)) (ptr K (ntarray le_1 he_1 τ)))
+   (ptr K (ntarray le_2 he_2 τ))
    (where le_0′ (⊢sub-bound Γ le_0))
    (where le_1′ (⊢sub-bound Γ le_1))
    (where he_0′ (⊢sub-bound Γ he_0))
    (where he_1′ (⊢sub-bound Γ he_1))
    (where le_2  (⊢join-lower le_0′ le_1′))
    (where he_2  (⊢join-upper he_0′ he_1′))]
-  [(⊢join-type Γ (ptr c (array le_0 he_0 τ)) (ptr c (array le_1 he_1 τ)))
-   (ptr c (array le_2 he_2 τ))
+  [(⊢join-type Γ (ptr K (array le_0 he_0 τ)) (ptr K (array le_1 he_1 τ)))
+   (ptr K (array le_2 he_2 τ))
    (where le_0′ (⊢sub-bound Γ le_0))
    (where le_1′ (⊢sub-bound Γ le_1))
    (where he_0′ (⊢sub-bound Γ he_0))
@@ -800,13 +801,13 @@
 ;; dyn-bound-cast to-type (n : from-type)
 (define-metafunction CoreChkC+
   ⊢bounds-within : vτ vτ -> #t or #f
-  [(⊢bounds-within (ptr c (ntarray l_1 h_1 τ_1)) (ptr c (ntarray l_2 h_2 τ_2)))
+  [(⊢bounds-within (ptr K (ntarray l_1 h_1 τ_1)) (ptr K (ntarray l_2 h_2 τ_2)))
    #t
    (side-condition (and (>= (term l_1) (term l_2))
                         (<= (term h_1) (term h_2))))
    or
    #f]
-  [(⊢bounds-within (ptr c (array l_1 h_1 τ_1)) (ptr c (array l_2 h_2 τ_2)))
+  [(⊢bounds-within (ptr K (array l_1 h_1 τ_1)) (ptr K (array l_2 h_2 τ_2)))
    #t
    (side-condition (and (>= (term l_1) (term l_2))
                         (<= (term h_1) (term h_2))))
@@ -818,18 +819,19 @@
 
 ;; once we generalize to arbitrary bound expressions
 ;; should take the more generalized τ instead of vτ
+;; Should I have changed these things to K? Especially changing c to K
 
 (define-metafunction CoreChkC+
   ⊢binop-type : τ n n -> τ or #f
-  [(⊢binop-type (ptr c (array l h τ)) n_1 n_2)
-   (ptr c (array l_2 h_2 τ))
+  [(⊢binop-type (ptr K (array l h τ)) n_1 n_2)
+   (ptr K (array l_2 h_2 τ))
    (where l_2 ,(- (term l) (term n_2)))
    (where h_2 ,(- (term h) (term n_2)))
    (side-condition (not (= 0 (term n_1))))]
 
   [(⊢binop-type (name τ int) n_1 n_2) τ]
-  [(⊢binop-type (name τ (ptr m (struct T))) n_1 n_2) τ]
-  [(⊢binop-type (name τ (ptr m int)) n_1 n_2) τ]
+  [(⊢binop-type (name τ (ptr K (struct T))) n_1 n_2) τ]
+  [(⊢binop-type (name τ (ptr K int)) n_1 n_2) τ]
   [(⊢binop-type (name τ (ptr u (ntarray l h _))) n_1 n_2) τ]
 
   ;;  there's a lot of repetition in these rules
@@ -992,11 +994,11 @@
 ;; i.e. 0-based counting, not 1-based
 (define-metafunction CoreChkC+
   ⊢& : τ f n -> (n : τ) or #f
-  [(⊢& (ptr m (struct T)) f_i n)
+  [(⊢& (ptr K (struct T)) f_i n)
    (n_i : τ_i′)
    (where ((τ_0 f_0) ... (τ_i f_i) _ ...) (⊢struct-lookup ,(*D*) T))
    (where n_i ,(+ (term n) (length (term ((τ_0 f_0) ...)))))
-   (where τ_i′ (ptr m τ_i))
+   (where τ_i′ (ptr K τ_i))
    (side-condition (or (eq? (term m) 'u) (not (= 0 (term n)))))]
   [(⊢& _ _ _) #f])
 
@@ -1062,9 +1064,9 @@
 
 (define-metafunction CoreChkC+
   ⊢is-array-or-nt-array? : ω -> #t or #f
-  [(⊢is-array-or-nt-array? (ptr m (ntarray le he τ)))
+  [(⊢is-array-or-nt-array? (ptr K (ntarray le he τ)))
    #t]
-  [(⊢is-array-or-nt-array? (ptr m (array le he τ)))
+  [(⊢is-array-or-nt-array? (ptr K (array le he τ)))
    #t]
   [(⊢is-array-or-nt-array? _)
    #f])
@@ -1079,7 +1081,7 @@
 
 (define-metafunction CoreChkC+
   ⊢extend-ρ : x τ ρ -> (cE ρ)
-  [(⊢extend-ρ x (ptr m (ntarray le he τ)) ((x_0 (x_lo0 x_hi0)) ...))
+  [(⊢extend-ρ x (ptr K (ntarray le he τ)) ((x_0 (x_lo0 x_hi0)) ...))
    ((let x_lo = le in
         (let x_hi = he in
              hole))
@@ -1105,14 +1107,14 @@
 
 (define-metafunction CoreChkC+
   ⊢nt-ptr? : τ -> #t or #f
-  [(⊢nt-ptr? (ptr m (ntarray le he τ))) #t]
+  [(⊢nt-ptr? (ptr K (ntarray le he τ))) #t]
   [(⊢nt-ptr? _) #f])
 
 (define-metafunction CoreChkC+
   ⊢non-nt-deref-or-strlen? : τ e -> #t or #f
   [(⊢non-nt-deref-or-strlen? (ptr u _) _) #t]
-  [(⊢non-nt-deref-or-strlen? (ptr m (ntarray le he τ)) (in-hole E (* x))) #f]
-  [(⊢non-nt-deref-or-strlen? (ptr m (ntarray le he τ))
+  [(⊢non-nt-deref-or-strlen? (ptr K (ntarray le he τ)) (in-hole E (* x))) #f]
+  [(⊢non-nt-deref-or-strlen? (ptr K (ntarray le he τ))
   ;; only match strlen x instead of let ... = strlen x because we are
   ;; dealing with operational semantics
                              (in-hole E (strlen x))) #f]
@@ -1633,6 +1635,8 @@
    ------------- Sub-struct-array-field
    (⊢subtype (ptr c (struct T)) (ptr c τ))])
 
+;; take this as an example for parametrizing
+
 ;;tests for subtyping
 (module+ test
   (parameterize ((*D* (term ((foo ((int x) (int y)))))))
@@ -1873,10 +1877,10 @@
                      (* (⊢insert-check #t ρ e_1 x_e1 (ptr K ω)) = x_e2))) τ)] ;; should I add the new check ehre, or put it into insert check? For now, I'll just add the new check here.
   ;; How do I test things?
 
-  [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr m_′ ω))
+  [(⊢ty>>> Γ σ ρ m e_1 ee_1 (ptr K ω)) ;; should I change m_' to K or K_'?
    (⊢ty>>> Γ σ ρ m e_2 ee_2 int)
    (⊢ty>>> Γ σ ρ m e_3 ee_3 τ)
-   (where #t (⊢mode-ok? m_′ m))
+   (where #t (⊢mode-ok? K m))
    (where #f (⊢is-literal? e_2))
    (where #f (⊢is-array-or-nt-array? ω))
    (where τ (⊢deref-type ω))
@@ -1944,20 +1948,20 @@
    (⊢bwf Γ le)
    (⊢bwf Γ he)
     ------------- WF-ARPTR
-   (⊢wf Γ (ptr m (array le he τ)))]
+   (⊢wf Γ (ptr K (array le he τ)))]
 
   [(⊢wf Γ τ)
    (⊢bwf Γ le)
    (⊢bwf Γ he)
     ------------- WF-NTARPTR
-   (⊢wf Γ (ptr m (ntarray le he τ)))]
+   (⊢wf Γ (ptr K (ntarray le he τ)))]
 
   [------------- WF-STRCT
-   (⊢wf Γ (ptr m (struct T)))]
+   (⊢wf Γ (ptr K (struct T)))]
 
   [(⊢wf Γ τ)
     ------------- WF-TPTR
-   (⊢wf Γ (ptr m τ))])
+   (⊢wf Γ (ptr K τ))])
 
 ;; do we need to widen bounds with unchecked pointers? probably yes
 
@@ -1975,28 +1979,28 @@
    (where eff ,(variable-not-in (term (x_hi x_new ee)) 'eff_strlen))])
 
 (define-metafunction CoreChkC+
-  ⊢insert-check : boolean ρ e ee (ptr m ω) -> ee
-  [(⊢insert-check boolean ρ e ee (ptr m ω))
+  ⊢insert-check : boolean ρ e ee (ptr K ω) -> ee
+  [(⊢insert-check boolean ρ e ee (ptr K ω))
    (in-hole cE_1 ee_1)
    (where x_e ,(variable-not-in (term (e ee ω)) 'x_e))
    (where cE (let x_e = ee in hole))
-   (where (cE_0 ee_0) (⊢insert-bounds-check boolean ρ e cE x_e (ptr m ω)))
-   (where (cE_1 ee_1) (⊢insert-null-check cE_0 ee_0 x_e (ptr m ω)))
-   (where (cE_2 ee_2) (⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr m ω)))]) ;; is this the right way to do it? Or should I do it differently.
+   (where (cE_0 ee_0) (⊢insert-bounds-check boolean ρ e cE x_e (ptr K ω)))
+   (where (cE_1 ee_1) (⊢insert-null-check cE_0 ee_0 x_e (ptr K ω)))
+   (where (cE_2 ee_2) (⊢insert-constant-bounds-check boolean ρ e cE x_e (ptr K ω)))]) ;; is this the right way to do it? Or should I do it differently.
 
 
 (define-metafunction CoreChkC+
-  ⊢insert-null-check′ : ρ ee (ptr m ω) -> ee
-  [(⊢insert-null-check′ ρ ee (ptr m ω))
+  ⊢insert-null-check′ : ρ ee (ptr K ω) -> ee
+  [(⊢insert-null-check′ ρ ee (ptr K ω))
    (in-hole cE_0 ee_0)
    (where x_e ,(variable-not-in (term (ρ ee ω)) 'x_e))
    (where cE (let x_e = ee in hole))
-   (where (cE_0 ee_0) (⊢insert-null-check cE x_e x_e (ptr m ω)))])
+   (where (cE_0 ee_0) (⊢insert-null-check cE x_e x_e (ptr K ω)))])
 
 
 (define-metafunction CoreChkC+
-  ⊢insert-bounds-check-dyn : ρ x e (ptr m ω) (ptr m ω) -> ee
-  [(⊢insert-bounds-check-dyn ρ x_e e (ptr m ω) (ptr m (_ le he _)))
+  ⊢insert-bounds-check-dyn : ρ x e (ptr K ω) (ptr K ω) -> ee
+  [(⊢insert-bounds-check-dyn ρ x_e e (ptr K ω) (ptr K (_ le he _)))
    (let x_lo = ee_lo in     ; use macro/metafunction to simplify code?
         (let x_hi = ee_hi in
              (if (x_lo <=? le)
@@ -2012,8 +2016,8 @@
 
 
 (define-metafunction CoreChkC+
-  ⊢insert-bounds-check : boolean ρ e cE x (ptr m ω) -> (cE ee)
-  [(⊢insert-bounds-check boolean ρ e cE x_e (ptr m ω))
+  ⊢insert-bounds-check : boolean ρ e cE x (ptr K ω) -> (cE ee)
+  [(⊢insert-bounds-check boolean ρ e cE x_e (ptr K ω))
    ((in-hole
      cE
      (let x_lo = ee_lo in     ; use macro/metafunction to simplify code?
@@ -2069,13 +2073,13 @@
    (cE x_e)]) 
 
 (define-metafunction CoreChkC+
-  ⊢insert-null-check : cE ee x (ptr m ω) -> (cE ee)
-  [(⊢insert-null-check cE ee x_e (ptr m ω))
+  ⊢insert-null-check : cE ee x (ptr K ω) -> (cE ee)
+  [(⊢insert-null-check cE ee x_e (ptr K ω))
    (cE
     (if x_e
         ee
         (enull)))
-   (where c m)
+   (where c K) ;; changed m to K, is that correct?
    or
    (cE x_e)])
 
@@ -2163,6 +2167,7 @@
   [(⊢dyn-bound-cast-ok? (ptr c (array _ _ τ)) (ptr c (array _ _ τ))) #t]
   [(⊢dyn-bound-cast-ok? _ _) #f])
 
+;; do I need to modify this?
 (define-metafunction CoreChkC+
   ⊢nt-ptr-deref? : Γ e -> #t or #f
   [(⊢nt-ptr-deref? Γ (* x))
@@ -2201,10 +2206,10 @@
 (define-metafunction CoreChkC+
   ⊢deref-type-dyn : D τ -> τ
   [(⊢deref-type-dyn _ int) int]
-  [(⊢deref-type-dyn _ (ptr m τ)) τ]
-  [(⊢deref-type-dyn _ (ptr m (ntarray _ _ τ))) τ]
-  [(⊢deref-type-dyn _ (ptr m (array _ _ τ))) τ]
-  [(⊢deref-type-dyn D (ptr m (struct T)))
+  [(⊢deref-type-dyn _ (ptr K τ)) τ]
+  [(⊢deref-type-dyn _ (ptr K (ntarray _ _ τ))) τ]
+  [(⊢deref-type-dyn _ (ptr K (array _ _ τ))) τ]
+  [(⊢deref-type-dyn D (ptr K (struct T)))
    τ_1
    (where ((τ_1 _) _ ...) (⊢struct-lookup D T))])
 
@@ -2378,6 +2383,7 @@
   [(⊢widen-bounds-strlen-new _ _)
    #f])
 
+;; tests? Should I parametrize *N* here?
 (module+ test
   (parameterize ((*D* (term ((foo ((int x) (int y)))))) ; a struct defn
                  (*H* (term ((5 : int))))) ; a heap for the type system tests
