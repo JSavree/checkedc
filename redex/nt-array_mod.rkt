@@ -79,7 +79,7 @@
 
   ;; Heap
   (H ::= ((n : vτ) ...))
-  (eH ::= (n ...))
+  (eH ::= ((n n) ...))
   
   ;;NEW functions
   (eF ::= ((defun x ... ee) ...))
@@ -217,6 +217,19 @@
 
 (default-language CoreChkC+)
 
+(define-metafunction CoreChkC+
+  ⊢build-list : K n n_1 -> eH
+  [(⊢build-list K n 0) ()]
+  [(⊢build-list c n n_1)
+   (append (term eH_0) (((+ (term n) (term n_1)) (const 0))))
+   (where eH_0 (⊢build-list c n (- (term n_1) (const 1))))]
+  [(⊢build-list t n n_1)
+   (append (term eH_0) (((+ (+ (term n) (term n_1)) ((expt 2 (*N*-1)))) (const 0))))
+   (where eH_0 (⊢build-list c n (- (term n_1) (const 1))))]
+  [(⊢build-list u n n_1)
+   (append (term eH_0) (((+ (+ (term n) (term n_1)) ((expt 2 (*N*-1)))) (const 0))))
+   (where eH_0 (⊢build-list c n (- (term n_1) (const 1))))]
+  )
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Operational Semantics
@@ -254,11 +267,13 @@
                                 (in-hole eE_′ i_1))))
         eE-Set)
 
+   ;; change these two C malloc functions
+   ;; Now I need to change places that access the heap or terms
    (--> (eH (in-hole eE (malloc K n_1)))
         (eH_′ (in-hole eE n_2))
         (side-condition (positive? (term n_1)))
-        (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
-        (where n_2 ,(add1 (length (term eH))))
+        (where eH_′ (⊢build-list K (length (term eH)) (term n_1))) ;; 
+        (where n_2 ,(add1 (length (term eH)))) ;; length of the list is an address?
         eE-Malloc)
 
    (--> (eH (in-hole eE (malloc K i_1)))
@@ -333,7 +348,7 @@
    (--> (eH eΣ (malloc K n_1) (eK ...))
         (eH_′ eΣ n_2 (eK ...))
         (side-condition (positive? (term n_1)))
-        (where eH_′ ,(append (term eH) (build-list (term n_1) (const 0))))
+        (where eH_′ (⊢build-list K (length (term eH)) (term n_1)))
         (where n_2 ,(add1 (length (term eH))))
         eE-Malloc)
 
@@ -1145,6 +1160,7 @@
    or
    #f])
 
+;; maybe I need to change definition of malloc-type?
 (define-metafunction CoreChkC+
   ⊢malloc-type-wf : ω -> #t or #f
   [(⊢malloc-type-wf int) #t]
@@ -1797,12 +1813,12 @@
    ------------- T-BinopInd
    (⊢ty>>> Γ σ ρ m (e_1 + (n : τ)) ((⊢insert-null-check′ ρ ee_1 (ptr K ω)) + n) (ptr K ω_′))]
 
-  ;; chane malloc so it modifies the pointer value depending on if it's t/u or c. So, should I make another copy but instead for t and u instead? or put it all in one
+  ;; change malloc so it modifies the pointer value depending on if it's t/u or c. So, should I make another copy but instead for t and u instead? or put it all in one
   ;; How do I check for t/u?
-  [(⊢wf Γ (ptr c ω)) ;; should I change c to K?
+  [(⊢wf Γ (ptr c ω)) ;; should I change c to K? Or does this function only accept c?
    (where #t (⊢malloc-type-wf ω))
    ------------- T-Mac
-   (⊢ty>>> Γ σ ρ m (malloc c ω) (malloc c (⊢sizeof ω)) (ptr c ω))]
+   (⊢ty>>> Γ σ ρ m (malloc c ω) (malloc c (⊢sizeof ω)) (ptr c ω))] ;; make a function
 
   ;; the following two are to take care of the cases when malloc is called with a pointer where it's t/u? Is this the right way to do things?
   ;; Also, will doing this permamently change things? It should right, since I'm calling malloc now with the modified values, right? Unless omega is not a integer.
@@ -1996,6 +2012,15 @@
    (where x_e ,(variable-not-in (term (ρ ee ω)) 'x_e))
    (where cE (let x_e = ee in hole))
    (where (cE_0 ee_0) (⊢insert-null-check cE x_e x_e (ptr K ω)))])
+
+
+(define-metafunction CoreChkC+
+  ⊢insert-constant-bounds-check′ : ρ ee (ptr K ω) -> ee
+  [(⊢insert-constant-bounds-check′ ρ ee (ptr K ω))
+   (in-hole cE_0 ee_0)
+   (where x_e ,(variable-not-in (term (ρ ee ω)) 'x_e))
+   (where cE (let x_e = ee in hole))
+   (where (cE_0 ee_0) (⊢insert-constant-bounds-check #t ρ cE x_e x_e (ptr K ω)))])
 
 
 (define-metafunction CoreChkC+
